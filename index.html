@@ -70,8 +70,37 @@
 
       // Charger les données au démarrage
       useEffect(() => {
+        // D'abord vérifier la session
+        checkSession();
+        // Puis charger les données
         loadData();
       }, []);
+
+      // Fonction pour vérifier la session
+      const checkSession = () => {
+        const sessionData = localStorage.getItem('clubSportSession');
+        if (sessionData) {
+          try {
+            const { user: savedUser, timestamp } = JSON.parse(sessionData);
+            const now = Date.now();
+            const oneHour = 60 * 60 * 1000; // 1 heure en millisecondes
+            
+            // Si la session a moins d'1h
+            if (now - timestamp < oneHour) {
+              setUser(savedUser);
+              setView('bookings');
+              console.log('Session restaurée:', savedUser.email);
+            } else {
+              // Session expirée
+              localStorage.removeItem('clubSportSession');
+              console.log('Session expirée');
+            }
+          } catch (error) {
+            localStorage.removeItem('clubSportSession');
+            console.error('Erreur session:', error);
+          }
+        }
+      };
 
       // Vérifier et réinitialiser les inscriptions chaque dimanche à 21h
       useEffect(() => {
@@ -197,8 +226,15 @@
       };
 
       const handleLogin = (email, role) => {
-        setUser({ email, role });
+        const userData = { email, role };
+        setUser(userData);
         setView('bookings');
+        
+        // Sauvegarder la session dans localStorage
+        localStorage.setItem('clubSportSession', JSON.stringify({
+          user: userData,
+          timestamp: Date.now()
+        }));
       };
 
       const handleBookSlot = async (slotId) => {
@@ -210,6 +246,26 @@
 
         // Vérifier si déjà inscrit
         if (bookings.includes(user.email) || waitlist.includes(user.email)) {
+          return;
+        }
+
+        // Vérifier les limites d'inscription par semaine
+        // On ne compte QUE les inscriptions confirmées (bookings), pas la waitlist
+        const userNatationBookings = slots
+          .filter(s => s.type === 'natation' && s.bookings?.includes(user.email))
+          .length;
+        
+        const userCrossfitBookings = slots
+          .filter(s => s.type === 'crossfit' && s.bookings?.includes(user.email))
+          .length;
+
+        if (slot.type === 'natation' && userNatationBookings >= 2) {
+          alert('⚠️ Vous avez atteint la limite de 2 inscriptions natation par semaine.\n\nVous êtes actuellement inscrit(e) à ' + userNatationBookings + ' créneau(x) de natation.');
+          return;
+        }
+
+        if (slot.type === 'crossfit' && userCrossfitBookings >= 1) {
+          alert('⚠️ Vous avez atteint la limite de 1 inscription crossfit par semaine.\n\nVous êtes actuellement inscrit(e) à ' + userCrossfitBookings + ' créneau(x) de crossfit.');
           return;
         }
 
@@ -251,14 +307,39 @@
 
           if (waitlist.length > 0) {
             const firstWaiting = waitlist[0];
-            newWaitlist = waitlist.slice(1);
-            newBookings.push(firstWaiting);
+            
+            // Vérifier les limites pour la personne en liste d'attente
+            const waitingUserNatationBookings = slots
+              .filter(s => s.type === 'natation' && s.bookings?.includes(firstWaiting))
+              .length;
+            
+            const waitingUserCrossfitBookings = slots
+              .filter(s => s.type === 'crossfit' && s.bookings?.includes(firstWaiting))
+              .length;
 
-            sendEmailNotification(
-              firstWaiting,
-              'Place disponible !',
-              `Une place s'est libérée pour le créneau ${slot.type} du ${slot.day} à ${slot.start_time}. Vous avez été automatiquement inscrit(e) !`
-            );
+            // Vérifier si la personne peut être inscrite
+            let canBook = true;
+            if (slot.type === 'natation' && waitingUserNatationBookings >= 2) {
+              canBook = false;
+            }
+            if (slot.type === 'crossfit' && waitingUserCrossfitBookings >= 1) {
+              canBook = false;
+            }
+
+            if (canBook) {
+              newWaitlist = waitlist.slice(1);
+              newBookings.push(firstWaiting);
+
+              sendEmailNotification(
+                firstWaiting,
+                'Place disponible !',
+                `Une place s'est libérée pour le créneau ${slot.type} du ${slot.day} à ${slot.start_time}. Vous avez été automatiquement inscrit(e) !`
+              );
+            } else {
+              // Si la première personne a atteint la limite, on essaie la suivante
+              newWaitlist = waitlist.slice(1);
+              console.log(`${firstWaiting} a atteint sa limite d'inscriptions`);
+            }
           }
         } else {
           newWaitlist = waitlist.filter(email => email !== user.email);
@@ -574,6 +655,7 @@
                   onClick={() => {
                     setUser(null);
                     setView('login');
+                    localStorage.removeItem('clubSportSession');
                   }}
                   className="text-gray-600 hover:text-gray-800"
                   title="Se déconnecter"
@@ -660,6 +742,15 @@
         running: { icon: 'footprints', color: 'purple', label: 'Running' }
       };
 
+      // Calculer le nombre d'inscriptions de l'utilisateur
+      const userNatationCount = slots.filter(s => 
+        s.type === 'natation' && (s.bookings?.includes(user.email) || s.waitlist?.includes(user.email))
+      ).length;
+      
+      const userCrossfitCount = slots.filter(s => 
+        s.type === 'crossfit' && (s.bookings?.includes(user.email) || s.waitlist?.includes(user.email))
+      ).length;
+
       return (
         <div>
           <div className="mb-8">
@@ -680,6 +771,29 @@
             </div>
             
             <p className="text-gray-600 mb-4">Les inscriptions sont réinitialisées chaque dimanche à 21h</p>
+            
+            {/* Indicateur d'inscriptions */}
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4 flex items-center justify-between">
+              <div className="flex items-center gap-6">
+                <div className="flex items-center gap-2">
+                  <Icon name="waves" className="text-blue-600" />
+                  <span className="text-sm font-medium text-gray-700">
+                    Natation: <span className={`font-bold ${userNatationCount >= 2 ? 'text-red-600' : 'text-green-600'}`}>
+                      {userNatationCount}/2
+                    </span>
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Icon name="dumbbell" className="text-orange-600" />
+                  <span className="text-sm font-medium text-gray-700">
+                    CrossFit: <span className={`font-bold ${userCrossfitCount >= 1 ? 'text-red-600' : 'text-green-600'}`}>
+                      {userCrossfitCount}/1
+                    </span>
+                  </span>
+                </div>
+              </div>
+              <span className="text-xs text-gray-500">Inscriptions cette semaine</span>
+            </div>
             
             <div className="flex flex-wrap gap-2">
               <button
