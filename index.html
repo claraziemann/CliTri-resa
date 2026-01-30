@@ -76,7 +76,13 @@
       // Vérifier et réinitialiser les inscriptions chaque dimanche à 21h
       useEffect(() => {
         const checkAndResetBookings = async () => {
-          const lastReset = await storage.get('lastReset');
+          // Récupérer la dernière réinitialisation depuis Supabase
+          const { data: lastResetData } = await supabase
+            .from('system_config')
+            .select('value')
+            .eq('key', 'last_reset')
+            .single();
+
           const now = new Date();
           const dayOfWeek = now.getDay();
           const hours = now.getHours();
@@ -84,14 +90,24 @@
           // Si c'est dimanche (0) après 21h
           if (dayOfWeek === 0 && hours >= 21) {
             const todayStr = now.toDateString();
+            const lastReset = lastResetData?.value;
+            
             if (lastReset !== todayStr) {
-              const resetSlots = slots.map(slot => ({ 
-                ...slot, 
-                bookings: [], 
-                waitlist: [] 
-              }));
-              await saveSlots(resetSlots);
-              await storage.set('lastReset', todayStr);
+              // Réinitialiser tous les créneaux dans Supabase
+              for (const slot of slots) {
+                await supabase
+                  .from('slots')
+                  .update({ bookings: [], waitlist: [] })
+                  .eq('id', slot.id);
+              }
+
+              // Enregistrer la date de réinitialisation
+              await supabase
+                .from('system_config')
+                .upsert({ key: 'last_reset', value: todayStr });
+
+              // Recharger les données
+              await loadData();
             }
           }
         };
