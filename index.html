@@ -3,13 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ClitTri - Réservations</title>
+  <title>CliTri - Réservations</title>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/lucide-static/0.263.1/font/lucide.min.css">
 </head>
 <body>
@@ -21,12 +20,61 @@
     // Icônes Lucide
     const Icon = ({ name, className = "" }) => <i className={`lucide lucide-${name} ${className}`}></i>;
 
-    // Configuration Supabase - VOS IDENTIFIANTS
-    const SUPABASE_URL = 'https://sqnogjfkqhcunhkqexsy.supabase.co';
-    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNxbm9namZrcWhjdW5oa3FleHN5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk3ODQwMTEsImV4cCI6MjA4NTM2MDAxMX0.0Ovz8Mmox68Wqz49x_GCDRDkGz0y_DCL0U8KNGJLb40';
+    // Utilitaires de stockage avec fallback
+    const storage = {
+      async get(key) {
+        try {
+          // Essayer avec window.storage si disponible
+          if (window.storage && typeof window.storage.get === 'function') {
+            const result = await window.storage.get(key);
+            return result ? JSON.parse(result.value) : null;
+          }
+        } catch (error) {
+          console.warn('window.storage.get error, using localStorage:', error);
+        }
+        
+        // Fallback vers localStorage
+        try {
+          const item = localStorage.getItem(key);
+          return item ? JSON.parse(item) : null;
+        } catch (error) {
+          console.error('Storage get error:', error);
+          return null;
+        }
+      },
+      async set(key, value) {
+        try {
+          // Essayer avec window.storage si disponible
+          if (window.storage && typeof window.storage.set === 'function') {
+            await window.storage.set(key, JSON.stringify(value));
+            return true;
+          }
+        } catch (error) {
+          console.warn('window.storage.set error, using localStorage:', error);
+        }
+        
+        // Fallback vers localStorage
+        try {
+          localStorage.setItem(key, JSON.stringify(value));
+          return true;
+        } catch (error) {
+          console.error('Storage set error:', error);
+          return false;
+        }
+      }
+    };
 
-    // Initialiser Supabase
-    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    // Données initiales
+    const INITIAL_USERS = [
+      { email: 'clara.boveziemann@gmail.com', role: 'admin' }
+    ];
+
+    const INITIAL_SLOTS = [
+      { id: 1, type: 'natation', day: 'Lundi', startTime: '18:00', duration: 60, capacity: 20, bookings: [], waitlist: [], active: true },
+      { id: 2, type: 'natation', day: 'Mercredi', startTime: '19:00', duration: 60, capacity: 20, bookings: [], waitlist: [], active: true },
+      { id: 3, type: 'crossfit', day: 'Mardi', startTime: '18:30', duration: 60, capacity: 15, bookings: [], waitlist: [], active: true },
+      { id: 4, type: 'crossfit', day: 'Jeudi', startTime: '18:30', duration: 60, capacity: 15, bookings: [], waitlist: [], active: true }
+    ];
 
     // Fonction pour formater l'heure de fin
     const getEndTime = (startTime, duration) => {
@@ -35,27 +83,6 @@
       const endHours = Math.floor(endMinutes / 60) % 24;
       const endMins = endMinutes % 60;
       return `${String(endHours).padStart(2, '0')}:${String(endMins).padStart(2, '0')}`;
-    };
-
-    // Normaliser les données Supabase (snake_case) vers camelCase
-    const normalizeSlot = (slot) => ({
-      ...slot,
-      startTime: slot.start_time || slot.startTime,
-      bookings: slot.bookings || [],
-      waitlist: slot.waitlist || []
-    });
-
-    const normalizeEvent = (event) => ({
-      ...event,
-      startTime: event.start_time || event.startTime,
-      participants: event.participants || [],
-      waitlist: event.waitlist || []
-    });
-
-    // Fonction pour obtenir le nom d'un utilisateur à partir de son email
-    const getUserName = (email, users) => {
-      const user = users.find(u => u.email === email);
-      return user?.name || email.split('@')[0]; // Fallback sur la partie avant @
     };
 
     // Fonction pour envoyer une notification email (simulée)
@@ -76,48 +103,13 @@
 
       // Charger les données au démarrage
       useEffect(() => {
-        // D'abord vérifier la session
-        checkSession();
-        // Puis charger les données
         loadData();
       }, []);
-
-      // Fonction pour vérifier la session
-      const checkSession = () => {
-        const sessionData = localStorage.getItem('clubSportSession');
-        if (sessionData) {
-          try {
-            const { user: savedUser, timestamp } = JSON.parse(sessionData);
-            const now = Date.now();
-            const oneHour = 60 * 60 * 1000; // 1 heure en millisecondes
-            
-            // Si la session a moins d'1h
-            if (now - timestamp < oneHour) {
-              setUser(savedUser);
-              setView('bookings');
-              console.log('Session restaurée:', savedUser.email);
-            } else {
-              // Session expirée
-              localStorage.removeItem('clubSportSession');
-              console.log('Session expirée');
-            }
-          } catch (error) {
-            localStorage.removeItem('clubSportSession');
-            console.error('Erreur session:', error);
-          }
-        }
-      };
 
       // Vérifier et réinitialiser les inscriptions chaque dimanche à 21h
       useEffect(() => {
         const checkAndResetBookings = async () => {
-          // Récupérer la dernière réinitialisation depuis Supabase
-          const { data: lastResetData } = await supabase
-            .from('system_config')
-            .select('value')
-            .eq('key', 'last_reset')
-            .single();
-
+          const lastReset = await storage.get('lastReset');
           const now = new Date();
           const dayOfWeek = now.getDay();
           const hours = now.getHours();
@@ -125,24 +117,14 @@
           // Si c'est dimanche (0) après 21h
           if (dayOfWeek === 0 && hours >= 21) {
             const todayStr = now.toDateString();
-            const lastReset = lastResetData?.value;
-            
             if (lastReset !== todayStr) {
-              // Réinitialiser tous les créneaux dans Supabase
-              for (const slot of slots) {
-                await supabase
-                  .from('slots')
-                  .update({ bookings: [], waitlist: [] })
-                  .eq('id', slot.id);
-              }
-
-              // Enregistrer la date de réinitialisation
-              await supabase
-                .from('system_config')
-                .upsert({ key: 'last_reset', value: todayStr });
-
-              // Recharger les données
-              await loadData();
+              const resetSlots = slots.map(slot => ({ 
+                ...slot, 
+                bookings: [], 
+                waitlist: [] 
+              }));
+              await saveSlots(resetSlots);
+              await storage.set('lastReset', todayStr);
             }
           }
         };
@@ -180,263 +162,156 @@
 
       const loadData = async () => {
         setLoading(true);
-        try {
-          // Charger les créneaux depuis Supabase
-          const { data: slotsData, error: slotsError } = await supabase
-            .from('slots')
-            .select('*')
-            .order('id');
-          
-          if (slotsError) throw slotsError;
-
-          // Charger les événements depuis Supabase
-          const { data: eventsData, error: eventsError } = await supabase
-            .from('events')
-            .select('*')
-            .order('date');
-          
-          if (eventsError) throw eventsError;
-
-          // Charger les utilisateurs depuis Supabase
-          const { data: usersData, error: usersError } = await supabase
-            .from('users')
-            .select('*')
-            .order('email');
-          
-          if (usersError) throw usersError;
-
-          setSlots((slotsData || []).map(normalizeSlot));
-          setEvents((eventsData || []).map(normalizeEvent));
-          setUsers(usersData || []);
-        } catch (error) {
-          console.error('Erreur de chargement:', error);
-          alert('Erreur de connexion à la base de données. Vérifiez votre connexion.');
-        } finally {
-          setLoading(false);
-        }
+        const storedSlots = await storage.get('slots');
+        const storedEvents = await storage.get('events');
+        const storedUsers = await storage.get('users');
+        
+        setSlots(storedSlots || INITIAL_SLOTS);
+        setEvents(storedEvents || []);
+        setUsers(storedUsers || INITIAL_USERS);
+        setLoading(false);
       };
 
       const saveSlots = async (newSlots) => {
         setSlots(newSlots);
-        // Les données sont sauvegardées directement dans Supabase par les fonctions individuelles
+        await storage.set('slots', newSlots);
       };
 
       const saveEvents = async (newEvents) => {
         setEvents(newEvents);
-        // Les données sont sauvegardées directement dans Supabase par les fonctions individuelles
+        await storage.set('events', newEvents);
       };
 
       const saveUsers = async (newUsers) => {
         setUsers(newUsers);
-        // Les données sont sauvegardées directement dans Supabase par les fonctions individuelles
+        await storage.set('users', newUsers);
       };
 
       const handleLogin = (email, role) => {
-        const userData = { email, role };
-        setUser(userData);
+        setUser({ email, role });
         setView('bookings');
-        
-        // Sauvegarder la session dans localStorage
-        localStorage.setItem('clubSportSession', JSON.stringify({
-          user: userData,
-          timestamp: Date.now()
-        }));
       };
 
-      const handleBookSlot = async (slotId) => {
-        const slot = slots.find(s => s.id === slotId);
-        if (!slot) return;
-
-        const bookings = slot.bookings || [];
-        const waitlist = slot.waitlist || [];
-
-        // Vérifier si déjà inscrit
-        if (bookings.includes(user.email) || waitlist.includes(user.email)) {
-          return;
-        }
-
-        // Vérifier les limites d'inscription par semaine
-        // On ne compte QUE les inscriptions confirmées (bookings), pas la waitlist
-        const userNatationBookings = slots
-          .filter(s => s.type === 'natation' && s.bookings?.includes(user.email))
-          .length;
-        
-        const userCrossfitBookings = slots
-          .filter(s => s.type === 'crossfit' && s.bookings?.includes(user.email))
-          .length;
-
-        if (slot.type === 'natation' && userNatationBookings >= 2) {
-          alert('⚠️ Vous avez atteint la limite de 2 inscriptions natation par semaine.\n\nVous êtes actuellement inscrit(e) à ' + userNatationBookings + ' créneau(x) de natation.');
-          return;
-        }
-
-        if (slot.type === 'crossfit' && userCrossfitBookings >= 1) {
-          alert('⚠️ Vous avez atteint la limite de 1 inscription crossfit par semaine.\n\nVous êtes actuellement inscrit(e) à ' + userCrossfitBookings + ' créneau(x) de crossfit.');
-          return;
-        }
-
-        let newBookings = [...bookings];
-        let newWaitlist = [...waitlist];
-
-        if (bookings.length < slot.capacity) {
-          newBookings.push(user.email);
-        } else {
-          newWaitlist.push(user.email);
-        }
-
-        const { error } = await supabase
-          .from('slots')
-          .update({ bookings: newBookings, waitlist: newWaitlist })
-          .eq('id', slotId);
-
-        if (!error) {
-          await loadData();
-        } else {
-          console.error('Erreur lors de la réservation:', error);
-          alert('Erreur lors de la réservation. Veuillez réessayer.');
-        }
-      };
-
-      const handleCancelSlot = async (slotId) => {
-        const slot = slots.find(s => s.id === slotId);
-        if (!slot) return;
-
-        const bookings = slot.bookings || [];
-        const waitlist = slot.waitlist || [];
-        const wasBooked = bookings.includes(user.email);
-
-        let newBookings = [...bookings];
-        let newWaitlist = [...waitlist];
-
-        if (wasBooked) {
-          newBookings = bookings.filter(email => email !== user.email);
-
-          if (waitlist.length > 0) {
-            const firstWaiting = waitlist[0];
-            
-            // Vérifier les limites pour la personne en liste d'attente
-            const waitingUserNatationBookings = slots
-              .filter(s => s.type === 'natation' && s.bookings?.includes(firstWaiting))
-              .length;
-            
-            const waitingUserCrossfitBookings = slots
-              .filter(s => s.type === 'crossfit' && s.bookings?.includes(firstWaiting))
-              .length;
-
-            // Vérifier si la personne peut être inscrite
-            let canBook = true;
-            if (slot.type === 'natation' && waitingUserNatationBookings >= 2) {
-              canBook = false;
-            }
-            if (slot.type === 'crossfit' && waitingUserCrossfitBookings >= 1) {
-              canBook = false;
+      const handleBookSlot = (slotId) => {
+        const newSlots = slots.map(slot => {
+          if (slot.id === slotId) {
+            // Vérifier si l'utilisateur est déjà inscrit
+            if (slot.bookings.includes(user.email) || slot.waitlist.includes(user.email)) {
+              return slot;
             }
 
-            if (canBook) {
-              newWaitlist = waitlist.slice(1);
-              newBookings.push(firstWaiting);
-
-              sendEmailNotification(
-                firstWaiting,
-                'Place disponible !',
-                `Une place s'est libérée pour le créneau ${slot.type} du ${slot.day} à ${slot.start_time}. Vous avez été automatiquement inscrit(e) !`
-              );
+            // Si il y a de la place, inscrire directement
+            if (slot.bookings.length < slot.capacity) {
+              return { ...slot, bookings: [...slot.bookings, user.email] };
             } else {
-              // Si la première personne a atteint la limite, on essaie la suivante
-              newWaitlist = waitlist.slice(1);
-              console.log(`${firstWaiting} a atteint sa limite d'inscriptions`);
+              // Sinon, ajouter à la liste d'attente
+              return { ...slot, waitlist: [...slot.waitlist, user.email] };
             }
           }
-        } else {
-          newWaitlist = waitlist.filter(email => email !== user.email);
-        }
-
-        const { error } = await supabase
-          .from('slots')
-          .update({ bookings: newBookings, waitlist: newWaitlist })
-          .eq('id', slotId);
-
-        if (!error) {
-          await loadData();
-        } else {
-          console.error('Erreur lors de l\'annulation:', error);
-          alert('Erreur lors de l\'annulation. Veuillez réessayer.');
-        }
+          return slot;
+        });
+        saveSlots(newSlots);
       };
 
-      const handleBookEvent = async (eventId) => {
-        const event = events.find(e => e.id === eventId);
-        if (!event) return;
-
-        const participants = event.participants || [];
-        const waitlist = event.waitlist || [];
-
-        if (participants.includes(user.email) || waitlist.includes(user.email)) {
-          return;
-        }
-
-        let newParticipants = [...participants];
-        let newWaitlist = [...waitlist];
-
-        if (event.capacity === 'unlimited' || participants.length < parseInt(event.capacity)) {
-          newParticipants.push(user.email);
-        } else {
-          newWaitlist.push(user.email);
-        }
-
-        const { error } = await supabase
-          .from('events')
-          .update({ participants: newParticipants, waitlist: newWaitlist })
-          .eq('id', eventId);
-
-        if (!error) {
-          await loadData();
-        } else {
-          console.error('Erreur lors de l\'inscription:', error);
-          alert('Erreur lors de l\'inscription. Veuillez réessayer.');
-        }
-      };
-
-      const handleCancelEvent = async (eventId) => {
-        const event = events.find(e => e.id === eventId);
-        if (!event) return;
-
-        const participants = event.participants || [];
-        const waitlist = event.waitlist || [];
-        const wasParticipant = participants.includes(user.email);
-
-        let newParticipants = [...participants];
-        let newWaitlist = [...waitlist];
-
-        if (wasParticipant) {
-          newParticipants = participants.filter(email => email !== user.email);
-
-          if (waitlist.length > 0 && event.capacity !== 'unlimited') {
-            const firstWaiting = waitlist[0];
-            newWaitlist = waitlist.slice(1);
-            newParticipants.push(firstWaiting);
-
-            sendEmailNotification(
-              firstWaiting,
-              'Place disponible !',
-              `Une place s'est libérée pour l'événement "${event.title}" le ${new Date(event.date).toLocaleDateString('fr-FR')}. Vous avez été automatiquement inscrit(e) !`
-            );
+      const handleCancelSlot = (slotId) => {
+        const newSlots = slots.map(slot => {
+          if (slot.id === slotId) {
+            const wasBooked = slot.bookings.includes(user.email);
+            
+            if (wasBooked) {
+              // Retirer des inscrits
+              const newBookings = slot.bookings.filter(email => email !== user.email);
+              
+              // Si il y a quelqu'un en liste d'attente, le faire passer
+              if (slot.waitlist.length > 0) {
+                const firstWaiting = slot.waitlist[0];
+                const newWaitlist = slot.waitlist.slice(1);
+                
+                // Envoyer notification
+                sendEmailNotification(
+                  firstWaiting,
+                  'Place disponible !',
+                  `Une place s'est libérée pour le créneau ${slot.type} du ${slot.day} à ${slot.startTime}. Vous avez été automatiquement inscrit(e) !`
+                );
+                
+                return { 
+                  ...slot, 
+                  bookings: [...newBookings, firstWaiting], 
+                  waitlist: newWaitlist 
+                };
+              }
+              
+              return { ...slot, bookings: newBookings };
+            } else {
+              // Retirer de la liste d'attente
+              const newWaitlist = slot.waitlist.filter(email => email !== user.email);
+              return { ...slot, waitlist: newWaitlist };
+            }
           }
-        } else {
-          newWaitlist = waitlist.filter(email => email !== user.email);
-        }
+          return slot;
+        });
+        saveSlots(newSlots);
+      };
 
-        const { error } = await supabase
-          .from('events')
-          .update({ participants: newParticipants, waitlist: newWaitlist })
-          .eq('id', eventId);
+      const handleBookEvent = (eventId) => {
+        const newEvents = events.map(event => {
+          if (event.id === eventId) {
+            // Vérifier si l'utilisateur est déjà inscrit
+            if (event.participants.includes(user.email) || event.waitlist.includes(user.email)) {
+              return event;
+            }
 
-        if (!error) {
-          await loadData();
-        } else {
-          console.error('Erreur lors de la désinscription:', error);
-          alert('Erreur lors de la désinscription. Veuillez réessayer.');
-        }
+            // Si capacité illimitée ou il y a de la place
+            if (event.capacity === 'unlimited' || event.participants.length < event.capacity) {
+              return { ...event, participants: [...event.participants, user.email] };
+            } else {
+              // Ajouter à la liste d'attente
+              return { ...event, waitlist: [...event.waitlist, user.email] };
+            }
+          }
+          return event;
+        });
+        saveEvents(newEvents);
+      };
+
+      const handleCancelEvent = (eventId) => {
+        const newEvents = events.map(event => {
+          if (event.id === eventId) {
+            const wasParticipant = event.participants.includes(user.email);
+            
+            if (wasParticipant) {
+              // Retirer des participants
+              const newParticipants = event.participants.filter(email => email !== user.email);
+              
+              // Si il y a quelqu'un en liste d'attente et capacité limitée
+              if (event.waitlist.length > 0 && event.capacity !== 'unlimited') {
+                const firstWaiting = event.waitlist[0];
+                const newWaitlist = event.waitlist.slice(1);
+                
+                // Envoyer notification
+                sendEmailNotification(
+                  firstWaiting,
+                  'Place disponible !',
+                  `Une place s'est libérée pour l'événement "${event.title}" le ${new Date(event.date).toLocaleDateString('fr-FR')}. Vous avez été automatiquement inscrit(e) !`
+                );
+                
+                return { 
+                  ...event, 
+                  participants: [...newParticipants, firstWaiting], 
+                  waitlist: newWaitlist 
+                };
+              }
+              
+              return { ...event, participants: newParticipants };
+            } else {
+              // Retirer de la liste d'attente
+              const newWaitlist = event.waitlist.filter(email => email !== user.email);
+              return { ...event, waitlist: newWaitlist };
+            }
+          }
+          return event;
+        });
+        saveEvents(newEvents);
       };
 
       if (loading) {
@@ -455,12 +330,11 @@
         <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
           <Navigation user={user} view={view} setView={setView} setUser={setUser} />
           
-          <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 lg:py-8">
+          <div className="container mx-auto px-4 py-8">
             {view === 'bookings' && (
               <BookingsView 
                 user={user} 
-                slots={slots}
-                users={users}
+                slots={slots} 
                 onBook={handleBookSlot}
                 onCancel={handleCancelSlot}
               />
@@ -470,7 +344,6 @@
               <EventsView 
                 user={user} 
                 events={events}
-                users={users}
                 onBook={handleBookEvent}
                 onCancel={handleCancelEvent}
               />
@@ -480,8 +353,6 @@
               <AdminSlotsPanel 
                 slots={slots} 
                 saveSlots={saveSlots}
-                supabase={supabase}
-                onReload={loadData}
               />
             )}
 
@@ -489,8 +360,6 @@
               <AdminEventsPanel 
                 events={events}
                 saveEvents={saveEvents}
-                supabase={supabase}
-                onReload={loadData}
               />
             )}
 
@@ -498,8 +367,6 @@
               <AdminUsersPanel 
                 users={users}
                 saveUsers={saveUsers}
-                supabase={supabase}
-                onReload={loadData}
               />
             )}
           </div>
@@ -532,7 +399,7 @@
               <div className="inline-block p-4 bg-blue-100 rounded-full mb-4">
                 <Icon name="waves" className="text-4xl text-blue-600" />
               </div>
-              <h1 className="text-3xl font-bold text-gray-800 mb-2">ClitTri</h1>
+              <h1 className="text-3xl font-bold text-gray-800 mb-2">CliTri</h1>
               <p className="text-gray-600">Réservation de créneaux</p>
             </div>
 
@@ -571,221 +438,112 @@
 
     function Navigation({ user, view, setView, setUser }) {
       const [showAdminMenu, setShowAdminMenu] = useState(false);
-      const [showMobileMenu, setShowMobileMenu] = useState(false);
-
-      const handleLogout = () => {
-        setUser(null);
-        setView('login');
-        localStorage.removeItem('clubSportSession');
-        setShowMobileMenu(false);
-      };
 
       return (
-        <nav className="bg-white shadow-lg sticky top-0 z-50">
+        <nav className="bg-white shadow-md">
           <div className="container mx-auto px-4">
             <div className="flex items-center justify-between h-16">
-              {/* Logo */}
-              <div className="flex items-center space-x-2">
-                <Icon name="waves" className="text-2xl text-blue-600" />
-                <span className="font-bold text-xl text-gray-800">ClitTri</span>
-              </div>
-              
-              {/* Menu Desktop - caché en dessous de 1024px */}
-              <div className="hidden lg:flex items-center space-x-4">
-                <button
-                  onClick={() => setView('bookings')}
-                  className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                    view === 'bookings' 
-                      ? 'bg-blue-100 text-blue-700' 
-                      : 'text-gray-600 hover:bg-gray-100'
-                  }`}
-                >
-                  Créneaux hebdo
-                </button>
-                
-                <button
-                  onClick={() => setView('events')}
-                  className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                    view === 'events' 
-                      ? 'bg-blue-100 text-blue-700' 
-                      : 'text-gray-600 hover:bg-gray-100'
-                  }`}
-                >
-                  Événements
-                </button>
-                
-                {user.role === 'admin' && (
-                  <div className="relative">
-                    <button
-                      onClick={() => setShowAdminMenu(!showAdminMenu)}
-                      className={`px-4 py-2 rounded-lg font-medium transition-colors flex items-center ${
-                        view.startsWith('admin') 
-                          ? 'bg-blue-100 text-blue-700' 
-                          : 'text-gray-600 hover:bg-gray-100'
-                      }`}
-                    >
-                      <Icon name="settings" className="inline mr-1" /> Admin
-                      <Icon name={showAdminMenu ? "chevron-up" : "chevron-down"} className="inline ml-1 text-sm" />
-                    </button>
-                    
-                    {showAdminMenu && (
-                      <div className="absolute top-full left-0 mt-1 bg-white shadow-lg rounded-lg py-2 min-w-[200px] z-50">
-                        <button
-                          onClick={() => { setView('admin-users'); setShowAdminMenu(false); }}
-                          className="w-full text-left px-4 py-2 hover:bg-gray-100 text-gray-700"
-                        >
-                          <Icon name="users" className="inline mr-2 text-sm" />
-                          Gestion utilisateurs
-                        </button>
-                        <button
-                          onClick={() => { setView('admin-slots'); setShowAdminMenu(false); }}
-                          className="w-full text-left px-4 py-2 hover:bg-gray-100 text-gray-700"
-                        >
-                          <Icon name="calendar" className="inline mr-2 text-sm" />
-                          Planning hebdomadaire
-                        </button>
-                        <button
-                          onClick={() => { setView('admin-events'); setShowAdminMenu(false); }}
-                          className="w-full text-left px-4 py-2 hover:bg-gray-100 text-gray-700"
-                        >
-                          <Icon name="calendar-plus" className="inline mr-2 text-sm" />
-                          Événements ponctuels
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Profil et Déconnexion Desktop */}
-                <div className="flex items-center space-x-3 ml-4 pl-4 border-l">
-                  <div className="text-sm text-gray-700">
-                    <Icon name="user" className="inline mr-1" />
-                    <span className="hidden xl:inline">{user.email}</span>
-                    {user.role === 'admin' && (
-                      <span className="ml-2 px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs font-medium">
-                        Admin
-                      </span>
-                    )}
-                  </div>
-                  <button
-                    onClick={handleLogout}
-                    className="flex items-center gap-2 px-3 py-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg font-medium transition-colors"
-                    title="Se déconnecter"
-                  >
-                    <Icon name="log-out" />
-                    <span className="hidden xl:inline">Déconnexion</span>
-                  </button>
+              <div className="flex items-center space-x-8">
+                <div className="flex items-center space-x-2">
+                  <Icon name="waves" className="text-2xl text-blue-600" />
+                  <span className="font-bold text-xl text-gray-800">CliTri</span>
                 </div>
-              </div>
-
-              {/* Bouton Hamburger - Visible en dessous de 1024px */}
-              <button
-                onClick={() => setShowMobileMenu(!showMobileMenu)}
-                className="lg:hidden p-3 text-gray-700 bg-gray-100 hover:bg-gray-200 border-2 border-gray-300 rounded-lg transition-colors flex items-center justify-center"
-                aria-label="Menu"
-                style={{ minWidth: '48px', minHeight: '48px' }}
-              >
-                <span className="text-2xl font-bold">{showMobileMenu ? '✕' : '☰'}</span>
-              </button>
-            </div>
-
-            {/* Menu Mobile - Visible en dessous de 1024px quand ouvert */}
-            {showMobileMenu && (
-              <div className="lg:hidden border-t border-gray-200 py-4 space-y-2">
-                <button
-                  onClick={() => { setView('bookings'); setShowMobileMenu(false); }}
-                  className={`w-full text-left px-4 py-3 rounded-lg font-medium transition-colors ${
-                    view === 'bookings' 
-                      ? 'bg-blue-100 text-blue-700' 
-                      : 'text-gray-600 hover:bg-gray-100'
-                  }`}
-                >
-                  <Icon name="calendar" className="inline mr-2" />
-                  Créneaux hebdo
-                </button>
                 
-                <button
-                  onClick={() => { setView('events'); setShowMobileMenu(false); }}
-                  className={`w-full text-left px-4 py-3 rounded-lg font-medium transition-colors ${
-                    view === 'events' 
-                      ? 'bg-blue-100 text-blue-700' 
-                      : 'text-gray-600 hover:bg-gray-100'
-                  }`}
-                >
-                  <Icon name="calendar-days" className="inline mr-2" />
-                  Événements
-                </button>
-
-                {user.role === 'admin' && (
-                  <>
-                    <div className="border-t border-gray-200 my-2 pt-2">
-                      <div className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase">
-                        Administration
-                      </div>
+                <div className="flex space-x-4">
+                  <button
+                    onClick={() => setView('bookings')}
+                    className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                      view === 'bookings' 
+                        ? 'bg-blue-100 text-blue-700' 
+                        : 'text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    Créneaux hebdo
+                  </button>
+                  
+                  <button
+                    onClick={() => setView('events')}
+                    className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                      view === 'events' 
+                        ? 'bg-blue-100 text-blue-700' 
+                        : 'text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    Événements
+                  </button>
+                  
+                  {user.role === 'admin' && (
+                    <div className="relative">
+                      <button
+                        onClick={() => setShowAdminMenu(!showAdminMenu)}
+                        className={`px-4 py-2 rounded-lg font-medium transition-colors flex items-center ${
+                          view.startsWith('admin') 
+                            ? 'bg-blue-100 text-blue-700' 
+                            : 'text-gray-600 hover:bg-gray-100'
+                        }`}
+                      >
+                        <Icon name="settings" className="inline mr-1" /> Admin
+                        <Icon name={showAdminMenu ? "chevron-up" : "chevron-down"} className="inline ml-1 text-sm" />
+                      </button>
+                      
+                      {showAdminMenu && (
+                        <div className="absolute top-full left-0 mt-1 bg-white shadow-lg rounded-lg py-2 min-w-[200px] z-50">
+                          <button
+                            onClick={() => { setView('admin-users'); setShowAdminMenu(false); }}
+                            className="w-full text-left px-4 py-2 hover:bg-gray-100 text-gray-700"
+                          >
+                            <Icon name="users" className="inline mr-2 text-sm" />
+                            Gestion utilisateurs
+                          </button>
+                          <button
+                            onClick={() => { setView('admin-slots'); setShowAdminMenu(false); }}
+                            className="w-full text-left px-4 py-2 hover:bg-gray-100 text-gray-700"
+                          >
+                            <Icon name="calendar" className="inline mr-2 text-sm" />
+                            Planning hebdomadaire
+                          </button>
+                          <button
+                            onClick={() => { setView('admin-events'); setShowAdminMenu(false); }}
+                            className="w-full text-left px-4 py-2 hover:bg-gray-100 text-gray-700"
+                          >
+                            <Icon name="calendar-plus" className="inline mr-2 text-sm" />
+                            Événements ponctuels
+                          </button>
+                        </div>
+                      )}
                     </div>
-                    <button
-                      onClick={() => { setView('admin-users'); setShowMobileMenu(false); }}
-                      className={`w-full text-left px-4 py-3 rounded-lg font-medium transition-colors ${
-                        view === 'admin-users' 
-                          ? 'bg-blue-100 text-blue-700' 
-                          : 'text-gray-600 hover:bg-gray-100'
-                      }`}
-                    >
-                      <Icon name="users" className="inline mr-2" />
-                      Gestion utilisateurs
-                    </button>
-                    <button
-                      onClick={() => { setView('admin-slots'); setShowMobileMenu(false); }}
-                      className={`w-full text-left px-4 py-3 rounded-lg font-medium transition-colors ${
-                        view === 'admin-slots' 
-                          ? 'bg-blue-100 text-blue-700' 
-                          : 'text-gray-600 hover:bg-gray-100'
-                      }`}
-                    >
-                      <Icon name="calendar" className="inline mr-2" />
-                      Planning hebdomadaire
-                    </button>
-                    <button
-                      onClick={() => { setView('admin-events'); setShowMobileMenu(false); }}
-                      className={`w-full text-left px-4 py-3 rounded-lg font-medium transition-colors ${
-                        view === 'admin-events' 
-                          ? 'bg-blue-100 text-blue-700' 
-                          : 'text-gray-600 hover:bg-gray-100'
-                      }`}
-                    >
-                      <Icon name="calendar-plus" className="inline mr-2" />
-                      Événements ponctuels
-                    </button>
-                  </>
-                )}
-
-                {/* Profil et Déconnexion Mobile */}
-                <div className="border-t border-gray-200 mt-4 pt-4 space-y-3">
-                  <div className="px-4 text-sm text-gray-700">
-                    <Icon name="user" className="inline mr-2" />
-                    {user.email}
-                    {user.role === 'admin' && (
-                      <span className="ml-2 px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs font-medium">
-                        Admin
-                      </span>
-                    )}
-                  </div>
-                  <button
-                    onClick={handleLogout}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg font-medium transition-colors"
-                  >
-                    <Icon name="log-out" />
-                    Se déconnecter
-                  </button>
+                  )}
                 </div>
               </div>
-            )}
+
+              <div className="flex items-center space-x-4">
+                <span className="text-gray-700 text-sm">
+                  <Icon name="user" className="inline mr-1" />
+                  {user.email}
+                  {user.role === 'admin' && (
+                    <span className="ml-2 px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs font-medium">
+                      Admin
+                    </span>
+                  )}
+                </span>
+                <button
+                  onClick={() => {
+                    setUser(null);
+                    setView('login');
+                  }}
+                  className="text-gray-600 hover:text-gray-800"
+                  title="Se déconnecter"
+                >
+                  <Icon name="log-out" />
+                </button>
+              </div>
+            </div>
           </div>
         </nav>
       );
     }
 
-    function BookingsView({ user, slots, users, onBook, onCancel }) {
+    function BookingsView({ user, slots, onBook, onCancel }) {
       const [filter, setFilter] = useState('all');
       const [countdown, setCountdown] = useState('');
 
@@ -858,15 +616,6 @@
         running: { icon: 'footprints', color: 'purple', label: 'Running' }
       };
 
-      // Calculer le nombre d'inscriptions de l'utilisateur
-      const userNatationCount = slots.filter(s => 
-        s.type === 'natation' && (s.bookings?.includes(user.email) || s.waitlist?.includes(user.email))
-      ).length;
-      
-      const userCrossfitCount = slots.filter(s => 
-        s.type === 'crossfit' && (s.bookings?.includes(user.email) || s.waitlist?.includes(user.email))
-      ).length;
-
       return (
         <div>
           <div className="mb-8">
@@ -887,29 +636,6 @@
             </div>
             
             <p className="text-gray-600 mb-4">Les inscriptions sont réinitialisées chaque dimanche à 21h</p>
-            
-            {/* Indicateur d'inscriptions */}
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4 flex items-center justify-between">
-              <div className="flex items-center gap-6">
-                <div className="flex items-center gap-2">
-                  <Icon name="waves" className="text-blue-600" />
-                  <span className="text-sm font-medium text-gray-700">
-                    Natation: <span className={`font-bold ${userNatationCount >= 2 ? 'text-red-600' : 'text-green-600'}`}>
-                      {userNatationCount}/2
-                    </span>
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Icon name="dumbbell" className="text-orange-600" />
-                  <span className="text-sm font-medium text-gray-700">
-                    CrossFit: <span className={`font-bold ${userCrossfitCount >= 1 ? 'text-red-600' : 'text-green-600'}`}>
-                      {userCrossfitCount}/1
-                    </span>
-                  </span>
-                </div>
-              </div>
-              <span className="text-xs text-gray-500">Inscriptions cette semaine</span>
-            </div>
             
             <div className="flex flex-wrap gap-2">
               <button
@@ -954,7 +680,6 @@
                       key={slot.id} 
                       slot={slot} 
                       user={user}
-                      users={users}
                       onBook={onBook}
                       onCancel={onCancel}
                     />
@@ -974,8 +699,7 @@
       );
     }
 
-    function SlotCard({ slot, user, users, onBook, onCancel }) {
-      const [showParticipants, setShowParticipants] = useState(false);
+    function SlotCard({ slot, user, onBook, onCancel }) {
       const isBooked = slot.bookings.includes(user.email);
       const isWaitlisted = slot.waitlist.includes(user.email);
       const isFull = slot.bookings.length >= slot.capacity;
@@ -983,350 +707,105 @@
       const waitlistPosition = slot.waitlist.indexOf(user.email) + 1;
 
       return (
-        <>
-          <div className="bg-white rounded-xl shadow-md p-6 hover:shadow-lg transition-shadow">
-            <div className="flex justify-between items-start mb-4">
-              <div>
-                <h3 className="text-lg font-bold text-gray-800">{slot.day}</h3>
-                <p className="text-gray-600 flex items-center mt-1">
-                  <Icon name="clock" className="mr-1 text-sm" />
-                  {slot.startTime} - {getEndTime(slot.startTime, slot.duration)}
-                </p>
-                <p className="text-sm text-gray-500 mt-1">
-                  Durée: {slot.duration} min
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-                  slot.type === 'natation' ? 'bg-blue-100 text-blue-700' :
-                  slot.type === 'crossfit' ? 'bg-orange-100 text-orange-700' :
-                  slot.type === 'vélo' ? 'bg-green-100 text-green-700' :
-                  'bg-purple-100 text-purple-700'
-                }`}>
-                  {slot.type}
-                </span>
-                <button
-                  onClick={() => setShowParticipants(true)}
-                  className="p-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
-                  title="Voir les participants"
-                >
-                  <span className="text-lg">👁️</span>
-                </button>
-              </div>
+        <div className="bg-white rounded-xl shadow-md p-6 hover:shadow-lg transition-shadow">
+          <div className="flex justify-between items-start mb-4">
+            <div>
+              <h3 className="text-lg font-bold text-gray-800">{slot.day}</h3>
+              <p className="text-gray-600 flex items-center mt-1">
+                <Icon name="clock" className="mr-1 text-sm" />
+                {slot.startTime} - {getEndTime(slot.startTime, slot.duration)}
+              </p>
+              <p className="text-sm text-gray-500 mt-1">
+                Durée: {slot.duration} min
+              </p>
             </div>
+            <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+              slot.type === 'natation' ? 'bg-blue-100 text-blue-700' :
+              slot.type === 'crossfit' ? 'bg-orange-100 text-orange-700' :
+              slot.type === 'vélo' ? 'bg-green-100 text-green-700' :
+              'bg-purple-100 text-purple-700'
+            }`}>
+              {slot.type}
+            </span>
+          </div>
 
-            <div className="mb-4">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm text-gray-600">Places disponibles</span>
-                <span className={`font-semibold ${
-                  availableSpots === 0 ? 'text-red-600' : 'text-green-600'
-                }`}>
-                  {availableSpots} / {slot.capacity}
-                </span>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-2">
-                <div
-                  className={`h-2 rounded-full transition-all ${
-                    availableSpots === 0 ? 'bg-red-500' : 'bg-green-500'
-                  }`}
-                  style={{ width: `${(slot.bookings.length / slot.capacity) * 100}%` }}
-                />
-              </div>
-              
-              {slot.waitlist.length > 0 && (
-                <p className="text-xs text-gray-500 mt-2">
-                  <Icon name="users" className="inline text-xs mr-1" />
-                  {slot.waitlist.length} personne{slot.waitlist.length > 1 ? 's' : ''} en liste d'attente
-                </p>
-              )}
+          <div className="mb-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm text-gray-600">Places disponibles</span>
+              <span className={`font-semibold ${
+                availableSpots === 0 ? 'text-red-600' : 'text-green-600'
+              }`}>
+                {availableSpots} / {slot.capacity}
+              </span>
             </div>
-
-            {isBooked ? (
-              <div>
-                <div className="bg-green-50 border border-green-200 text-green-700 px-3 py-2 rounded-lg text-sm mb-2 flex items-center">
-                  <Icon name="check-circle" className="mr-2" />
-                  Vous êtes inscrit(e)
-                </div>
-                <button
-                  onClick={() => onCancel(slot.id)}
-                  className="w-full bg-red-600 text-white py-2 rounded-lg font-medium hover:bg-red-700 transition-colors"
-                >
-                  <Icon name="x" className="inline mr-1" />
-                  Se désinscrire
-                </button>
-              </div>
-            ) : isWaitlisted ? (
-              <div>
-                <div className="bg-yellow-50 border border-yellow-200 text-yellow-700 px-3 py-2 rounded-lg text-sm mb-2 flex items-center">
-                  <Icon name="clock" className="mr-2" />
-                  Liste d'attente - Position #{waitlistPosition}
-                </div>
-                <button
-                  onClick={() => onCancel(slot.id)}
-                  className="w-full bg-gray-600 text-white py-2 rounded-lg font-medium hover:bg-gray-700 transition-colors"
-                >
-                  Quitter la liste d'attente
-                </button>
-              </div>
-            ) : (
-              <button
-                onClick={() => onBook(slot.id)}
-                className={`w-full py-2 rounded-lg font-medium transition-colors ${
-                  isFull
-                    ? 'bg-yellow-600 text-white hover:bg-yellow-700'
-                    : 'bg-blue-600 text-white hover:bg-blue-700'
+            <div className="w-full bg-gray-200 rounded-full h-2">
+              <div
+                className={`h-2 rounded-full transition-all ${
+                  availableSpots === 0 ? 'bg-red-500' : 'bg-green-500'
                 }`}
-              >
-                {isFull ? (
-                  <>
-                    <Icon name="clock" className="inline mr-1" />
-                    Rejoindre la liste d'attente
-                  </>
-                ) : (
-                  'Réserver'
-                )}
-              </button>
+                style={{ width: `${(slot.bookings.length / slot.capacity) * 100}%` }}
+              />
+            </div>
+            
+            {slot.waitlist.length > 0 && (
+              <p className="text-xs text-gray-500 mt-2">
+                <Icon name="users" className="inline text-xs mr-1" />
+                {slot.waitlist.length} personne{slot.waitlist.length > 1 ? 's' : ''} en liste d'attente
+              </p>
             )}
           </div>
 
-          {/* Pop-up des participants */}
-          {showParticipants && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => setShowParticipants(false)}>
-              <div className="bg-white rounded-xl shadow-2xl max-w-md w-full max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-                <div className="sticky top-0 bg-white border-b px-6 py-4 flex justify-between items-center">
-                  <h3 className="text-xl font-bold text-gray-800">
-                    {slot.type} - {slot.day} {slot.startTime}
-                  </h3>
-                  <button
-                    onClick={() => setShowParticipants(false)}
-                    className="text-gray-500 hover:text-gray-700 text-2xl font-bold"
-                  >
-                    ×
-                  </button>
-                </div>
-                
-                <div className="p-6">
-                  {/* Inscrits */}
-                  <div className="mb-6">
-                    <h4 className="font-semibold text-gray-700 mb-3 flex items-center">
-                      <span className="text-green-600 mr-2">✓</span>
-                      Inscrits ({slot.bookings.length}/{slot.capacity})
-                    </h4>
-                    {slot.bookings.length === 0 ? (
-                      <p className="text-gray-500 text-sm italic">Aucun inscrit</p>
-                    ) : (
-                      <div className="space-y-2">
-                        {slot.bookings.map((email, idx) => (
-                          <div key={idx} className="flex items-center bg-green-50 px-3 py-2 rounded-lg">
-                            <span className="text-green-600 mr-2">✓</span>
-                            <span className="text-sm text-gray-700 font-medium">{getUserName(email, users)}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Liste d'attente */}
-                  {slot.waitlist.length > 0 && (
-                    <div>
-                      <h4 className="font-semibold text-gray-700 mb-3 flex items-center">
-                        <span className="text-yellow-600 mr-2">⏱️</span>
-                        Liste d'attente ({slot.waitlist.length})
-                      </h4>
-                      <div className="space-y-2">
-                        {slot.waitlist.map((email, idx) => (
-                          <div key={idx} className="flex items-center bg-yellow-50 px-3 py-2 rounded-lg">
-                            <span className="text-yellow-600 mr-2 font-semibold">#{idx + 1}</span>
-                            <span className="text-sm text-gray-700 font-medium">{getUserName(email, users)}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
+          {isBooked ? (
+            <div>
+              <div className="bg-green-50 border border-green-200 text-green-700 px-3 py-2 rounded-lg text-sm mb-2 flex items-center">
+                <Icon name="check-circle" className="mr-2" />
+                Vous êtes inscrit(e)
               </div>
-            </div>
-          )}
-        </>
-      );
-    }
-      const [showParticipants, setShowParticipants] = useState(false);
-      const isBooked = slot.bookings.includes(user.email);
-      const isWaitlisted = slot.waitlist.includes(user.email);
-      const isFull = slot.bookings.length >= slot.capacity;
-      const availableSpots = slot.capacity - slot.bookings.length;
-      const waitlistPosition = slot.waitlist.indexOf(user.email) + 1;
-
-      return (
-        <>
-          <div className="bg-white rounded-xl shadow-md p-6 hover:shadow-lg transition-shadow">
-            <div className="flex justify-between items-start mb-4">
-              <div>
-                <h3 className="text-lg font-bold text-gray-800">{slot.day}</h3>
-                <p className="text-gray-600 flex items-center mt-1">
-                  <Icon name="clock" className="mr-1 text-sm" />
-                  {slot.startTime} - {getEndTime(slot.startTime, slot.duration)}
-                </p>
-                <p className="text-sm text-gray-500 mt-1">
-                  Durée: {slot.duration} min
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-                  slot.type === 'natation' ? 'bg-blue-100 text-blue-700' :
-                  slot.type === 'crossfit' ? 'bg-orange-100 text-orange-700' :
-                  slot.type === 'vélo' ? 'bg-green-100 text-green-700' :
-                  'bg-purple-100 text-purple-700'
-                }`}>
-                  {slot.type}
-                </span>
-                <button
-                  onClick={() => setShowParticipants(true)}
-                  className="p-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
-                  title="Voir les participants"
-                >
-                  <span className="text-lg">👁️</span>
-                </button>
-              </div>
-            </div>
-
-            <div className="mb-4">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm text-gray-600">Places disponibles</span>
-                <span className={`font-semibold ${
-                  availableSpots === 0 ? 'text-red-600' : 'text-green-600'
-                }`}>
-                  {availableSpots} / {slot.capacity}
-                </span>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-2">
-                <div
-                  className={`h-2 rounded-full transition-all ${
-                    availableSpots === 0 ? 'bg-red-500' : 'bg-green-500'
-                  }`}
-                  style={{ width: `${(slot.bookings.length / slot.capacity) * 100}%` }}
-                />
-              </div>
-              
-              {slot.waitlist.length > 0 && (
-                <p className="text-xs text-gray-500 mt-2">
-                  <Icon name="users" className="inline text-xs mr-1" />
-                  {slot.waitlist.length} personne{slot.waitlist.length > 1 ? 's' : ''} en liste d'attente
-                </p>
-              )}
-            </div>
-
-            {isBooked ? (
-              <div>
-                <div className="bg-green-50 border border-green-200 text-green-700 px-3 py-2 rounded-lg text-sm mb-2 flex items-center">
-                  <Icon name="check-circle" className="mr-2" />
-                  Vous êtes inscrit(e)
-                </div>
-                <button
-                  onClick={() => onCancel(slot.id)}
-                  className="w-full bg-red-600 text-white py-2 rounded-lg font-medium hover:bg-red-700 transition-colors"
-                >
-                  <Icon name="x" className="inline mr-1" />
-                  Se désinscrire
-                </button>
-              </div>
-            ) : isWaitlisted ? (
-              <div>
-                <div className="bg-yellow-50 border border-yellow-200 text-yellow-700 px-3 py-2 rounded-lg text-sm mb-2 flex items-center">
-                  <Icon name="clock" className="mr-2" />
-                  Liste d'attente - Position #{waitlistPosition}
-                </div>
-                <button
-                  onClick={() => onCancel(slot.id)}
-                  className="w-full bg-gray-600 text-white py-2 rounded-lg font-medium hover:bg-gray-700 transition-colors"
-                >
-                  Quitter la liste d'attente
-                </button>
-              </div>
-            ) : (
               <button
-                onClick={() => onBook(slot.id)}
-                className={`w-full py-2 rounded-lg font-medium transition-colors ${
-                  isFull
-                    ? 'bg-yellow-600 text-white hover:bg-yellow-700'
-                    : 'bg-blue-600 text-white hover:bg-blue-700'
-                }`}
+                onClick={() => onCancel(slot.id)}
+                className="w-full bg-red-600 text-white py-2 rounded-lg font-medium hover:bg-red-700 transition-colors"
               >
-                {isFull ? (
-                  <>
-                    <Icon name="clock" className="inline mr-1" />
-                    Rejoindre la liste d'attente
-                  </>
-                ) : (
-                  'Réserver'
-                )}
+                <Icon name="x" className="inline mr-1" />
+                Se désinscrire
               </button>
-            )}
-          </div>
-
-          {/* Pop-up des participants */}
-          {showParticipants && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => setShowParticipants(false)}>
-              <div className="bg-white rounded-xl shadow-2xl max-w-md w-full max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-                <div className="sticky top-0 bg-white border-b px-6 py-4 flex justify-between items-center">
-                  <h3 className="text-xl font-bold text-gray-800">
-                    {slot.type} - {slot.day} {slot.startTime}
-                  </h3>
-                  <button
-                    onClick={() => setShowParticipants(false)}
-                    className="text-gray-500 hover:text-gray-700 text-2xl font-bold"
-                  >
-                    ×
-                  </button>
-                </div>
-                
-                <div className="p-6">
-                  {/* Inscrits */}
-                  <div className="mb-6">
-                    <h4 className="font-semibold text-gray-700 mb-3 flex items-center">
-                      <span className="text-green-600 mr-2">✓</span>
-                      Inscrits ({slot.bookings.length}/{slot.capacity})
-                    </h4>
-                    {slot.bookings.length === 0 ? (
-                      <p className="text-gray-500 text-sm italic">Aucun inscrit</p>
-                    ) : (
-                      <div className="space-y-2">
-                        {slot.bookings.map((email, idx) => (
-                          <div key={idx} className="flex items-center bg-green-50 px-3 py-2 rounded-lg">
-                            <span className="text-green-600 mr-2">✓</span>
-                            <span className="text-sm text-gray-700">{email}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Liste d'attente */}
-                  {slot.waitlist.length > 0 && (
-                    <div>
-                      <h4 className="font-semibold text-gray-700 mb-3 flex items-center">
-                        <span className="text-yellow-600 mr-2">⏱️</span>
-                        Liste d'attente ({slot.waitlist.length})
-                      </h4>
-                      <div className="space-y-2">
-                        {slot.waitlist.map((email, idx) => (
-                          <div key={idx} className="flex items-center bg-yellow-50 px-3 py-2 rounded-lg">
-                            <span className="text-yellow-600 mr-2 font-semibold">#{idx + 1}</span>
-                            <span className="text-sm text-gray-700">{email}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
             </div>
+          ) : isWaitlisted ? (
+            <div>
+              <div className="bg-yellow-50 border border-yellow-200 text-yellow-700 px-3 py-2 rounded-lg text-sm mb-2 flex items-center">
+                <Icon name="clock" className="mr-2" />
+                Liste d'attente - Position #{waitlistPosition}
+              </div>
+              <button
+                onClick={() => onCancel(slot.id)}
+                className="w-full bg-gray-600 text-white py-2 rounded-lg font-medium hover:bg-gray-700 transition-colors"
+              >
+                Quitter la liste d'attente
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => onBook(slot.id)}
+              className={`w-full py-2 rounded-lg font-medium transition-colors ${
+                isFull
+                  ? 'bg-yellow-600 text-white hover:bg-yellow-700'
+                  : 'bg-blue-600 text-white hover:bg-blue-700'
+              }`}
+            >
+              {isFull ? (
+                <>
+                  <Icon name="clock" className="inline mr-1" />
+                  Rejoindre la liste d'attente
+                </>
+              ) : (
+                'Réserver'
+              )}
+            </button>
           )}
-        </>
+        </div>
       );
     }
 
-    function EventsView({ user, events, users, onBook, onCancel }) {
+    function EventsView({ user, events, onBook, onCancel }) {
       const sortedEvents = [...events].sort((a, b) => new Date(a.date) - new Date(b.date));
 
       return (
@@ -1345,7 +824,6 @@
                   key={event.id}
                   event={event}
                   user={user}
-                  users={users}
                   onBook={onBook}
                   onCancel={onCancel}
                 />
@@ -1356,201 +834,113 @@
       );
     }
 
-    function EventCard({ event, user, users, onBook, onCancel }) {
-      const [showParticipants, setShowParticipants] = useState(false);
+    function EventCard({ event, user, onBook, onCancel }) {
       const isParticipant = event.participants.includes(user.email);
       const isWaitlisted = event.waitlist.includes(user.email);
       const isFull = event.capacity !== 'unlimited' && event.participants.length >= event.capacity;
       const waitlistPosition = event.waitlist.indexOf(user.email) + 1;
 
       return (
-        <>
-          <div className="bg-white rounded-xl shadow-md overflow-hidden hover:shadow-lg transition-shadow">
-            <div className="h-2 bg-gradient-to-r from-blue-500 to-purple-500"></div>
-            
-            <div className="p-6">
-              <div className="mb-4 flex justify-between items-start">
-                <div className="flex-1">
-                  <h3 className="text-xl font-bold text-gray-800 mb-2">{event.title}</h3>
-                  {event.description && (
-                    <p className="text-gray-700 text-sm mb-3">{event.description}</p>
-                  )}
-                </div>
-                <button
-                  onClick={() => setShowParticipants(true)}
-                  className="p-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors ml-3"
-                  title="Voir les participants"
-                >
-                  <span className="text-lg">👁️</span>
-                </button>
-              </div>
-
-              <div className="space-y-2 mb-4">
-                <p className="text-gray-600 flex items-center">
-                  <Icon name="calendar" className="mr-2 text-sm" />
-                  {new Date(event.date).toLocaleDateString('fr-FR', { 
-                    weekday: 'long', 
-                    day: 'numeric', 
-                    month: 'long', 
-                    year: 'numeric' 
-                  })}
-                </p>
-                
-                <p className="text-gray-600 flex items-center">
-                  <Icon name="clock" className="mr-2 text-sm" />
-                  {event.startTime} - {getEndTime(event.startTime, event.duration)}
-                </p>
-
-                <p className="text-gray-600 flex items-center">
-                  <Icon name="timer" className="mr-2 text-sm" />
-                  Durée: {event.duration} min
-                </p>
-              </div>
-
-              <div className="mb-4">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm text-gray-600">
-                    {event.capacity === 'unlimited' ? 'Inscrits' : 'Places'}
-                  </span>
-                  <span className={`font-semibold ${
-                    event.capacity === 'unlimited' ? 'text-blue-600' :
-                    isFull ? 'text-red-600' : 'text-green-600'
-                  }`}>
-                    {event.participants.length}
-                    {event.capacity !== 'unlimited' && ` / ${event.capacity}`}
-                    {event.capacity === 'unlimited' && ' inscrits'}
-                  </span>
-                </div>
-                
-                {event.capacity !== 'unlimited' && (
-                  <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div
-                      className={`h-2 rounded-full transition-all ${
-                        isFull ? 'bg-red-500' : 'bg-green-500'
-                      }`}
-                      style={{ width: `${(event.participants.length / event.capacity) * 100}%` }}
-                    />
-                  </div>
-                )}
-                
-                {event.waitlist.length > 0 && (
-                  <p className="text-xs text-gray-500 mt-2">
-                    <Icon name="users" className="inline text-xs mr-1" />
-                    {event.waitlist.length} personne{event.waitlist.length > 1 ? 's' : ''} en liste d'attente
-                  </p>
-                )}
-              </div>
-
-              {isParticipant ? (
-                <div>
-                  <div className="bg-green-50 border border-green-200 text-green-700 px-3 py-2 rounded-lg text-sm mb-2 flex items-center">
-                    <Icon name="check-circle" className="mr-2" />
-                    Vous êtes inscrit(e)
-                  </div>
-                  <button
-                    onClick={() => onCancel(event.id)}
-                    className="w-full bg-red-600 text-white py-2 rounded-lg font-medium hover:bg-red-700 transition-colors"
-                  >
-                    <Icon name="x" className="inline mr-1" />
-                    Se désinscrire
-                  </button>
-                </div>
-              ) : isWaitlisted ? (
-                <div>
-                  <div className="bg-yellow-50 border border-yellow-200 text-yellow-700 px-3 py-2 rounded-lg text-sm mb-2 flex items-center">
-                    <Icon name="clock" className="mr-2" />
-                    Liste d'attente - Position #{waitlistPosition}
-                  </div>
-                  <button
-                    onClick={() => onCancel(event.id)}
-                    className="w-full bg-gray-600 text-white py-2 rounded-lg font-medium hover:bg-gray-700 transition-colors"
-                  >
-                    Quitter la liste d'attente
-                  </button>
-                </div>
-              ) : (
-                <button
-                  onClick={() => onBook(event.id)}
-                  className={`w-full py-2 rounded-lg font-medium transition-colors ${
-                    isFull
-                      ? 'bg-yellow-600 text-white hover:bg-yellow-700'
-                      : 'bg-blue-600 text-white hover:bg-blue-700'
-                  }`}
-                >
-                  {isFull ? (
-                    <>
-                      <Icon name="clock" className="inline mr-1" />
-                      Rejoindre la liste d'attente
-                    </>
-                  ) : (
-                    'Participer'
-                  )}
-                </button>
+        <div className="bg-white rounded-xl shadow-md overflow-hidden hover:shadow-lg transition-shadow">
+          <div className="h-2 bg-gradient-to-r from-blue-500 to-purple-500"></div>
+          
+          <div className="p-6">
+            <div className="mb-4">
+              <h3 className="text-xl font-bold text-gray-800 mb-2">{event.title}</h3>
+              {event.description && (
+                <p className="text-gray-700 text-sm mb-3">{event.description}</p>
               )}
             </div>
-          </div>
 
-          {/* Pop-up des participants */}
-          {showParticipants && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => setShowParticipants(false)}>
-              <div className="bg-white rounded-xl shadow-2xl max-w-md w-full max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-                <div className="sticky top-0 bg-white border-b px-6 py-4 flex justify-between items-center">
-                  <h3 className="text-xl font-bold text-gray-800">
-                    {event.title}
-                  </h3>
-                  <button
-                    onClick={() => setShowParticipants(false)}
-                    className="text-gray-500 hover:text-gray-700 text-2xl font-bold"
-                  >
-                    ×
-                  </button>
-                </div>
-                
-                <div className="p-6">
-                  {/* Participants */}
-                  <div className="mb-6">
-                    <h4 className="font-semibold text-gray-700 mb-3 flex items-center">
-                      <span className="text-green-600 mr-2">✓</span>
-                      Participants ({event.participants.length}{event.capacity !== 'unlimited' ? `/${event.capacity}` : ''})
-                    </h4>
-                    {event.participants.length === 0 ? (
-                      <p className="text-gray-500 text-sm italic">Aucun participant</p>
-                    ) : (
-                      <div className="space-y-2">
-                        {event.participants.map((email, idx) => (
-                          <div key={idx} className="flex items-center bg-green-50 px-3 py-2 rounded-lg">
-                            <span className="text-green-600 mr-2">✓</span>
-                            <span className="text-sm text-gray-700 font-medium">{getUserName(email, users)}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+            <div className="space-y-2 mb-4">
+              <p className="text-gray-600 flex items-center">
+                <Icon name="calendar" className="mr-2 text-sm" />
+                {new Date(event.date).toLocaleDateString('fr-FR', { 
+                  weekday: 'long', 
+                  day: 'numeric', 
+                  month: 'long', 
+                  year: 'numeric' 
+                })}
+              </p>
+              
+              <p className="text-gray-600 flex items-center">
+                <Icon name="clock" className="mr-2 text-sm" />
+                {event.startTime} - {getEndTime(event.startTime, event.duration)}
+              </p>
 
-                  {/* Liste d'attente */}
-                  {event.waitlist.length > 0 && (
-                    <div>
-                      <h4 className="font-semibold text-gray-700 mb-3 flex items-center">
-                        <span className="text-yellow-600 mr-2">⏱️</span>
-                        Liste d'attente ({event.waitlist.length})
-                      </h4>
-                      <div className="space-y-2">
-                        {event.waitlist.map((email, idx) => (
-                          <div key={idx} className="flex items-center bg-yellow-50 px-3 py-2 rounded-lg">
-                            <span className="text-yellow-600 mr-2 font-semibold">#{idx + 1}</span>
-                            <span className="text-sm text-gray-700 font-medium">{getUserName(email, users)}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
+              <p className="text-gray-600 flex items-center">
+                <Icon name="timer" className="mr-2 text-sm" />
+                Durée: {event.duration} min
+              </p>
             </div>
-          )}
-        </>
-      );
-    }
+
+            <div className="mb-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm text-gray-600">
+                  {event.capacity === 'unlimited' ? 'Inscrits' : 'Places'}
+                </span>
+                <span className={`font-semibold ${
+                  event.capacity === 'unlimited' ? 'text-blue-600' :
+                  isFull ? 'text-red-600' : 'text-green-600'
+                }`}>
+                  {event.participants.length}
+                  {event.capacity !== 'unlimited' && ` / ${event.capacity}`}
+                  {event.capacity === 'unlimited' && ' inscrits'}
+                </span>
+              </div>
+              
+              {event.capacity !== 'unlimited' && (
+                <div className="w-full bg-gray-200 rounded-full h-2">
+                  <div
+                    className={`h-2 rounded-full transition-all ${
+                      isFull ? 'bg-red-500' : 'bg-green-500'
+                    }`}
+                    style={{ width: `${(event.participants.length / event.capacity) * 100}%` }}
+                  />
+                </div>
+              )}
+              
+              {event.waitlist.length > 0 && (
+                <p className="text-xs text-gray-500 mt-2">
+                  <Icon name="users" className="inline text-xs mr-1" />
+                  {event.waitlist.length} personne{event.waitlist.length > 1 ? 's' : ''} en liste d'attente
+                </p>
+              )}
+            </div>
+
+            {isParticipant ? (
+              <div>
+                <div className="bg-green-50 border border-green-200 text-green-700 px-3 py-2 rounded-lg text-sm mb-2 flex items-center">
+                  <Icon name="check-circle" className="mr-2" />
+                  Vous êtes inscrit(e)
+                </div>
+                <button
+                  onClick={() => onCancel(event.id)}
+                  className="w-full bg-red-600 text-white py-2 rounded-lg font-medium hover:bg-red-700 transition-colors"
+                >
+                  <Icon name="x" className="inline mr-1" />
+                  Se désinscrire
+                </button>
+              </div>
+            ) : isWaitlisted ? (
+              <div>
+                <div className="bg-yellow-50 border border-yellow-200 text-yellow-700 px-3 py-2 rounded-lg text-sm mb-2 flex items-center">
+                  <Icon name="clock" className="mr-2" />
+                  Liste d'attente - Position #{waitlistPosition}
+                </div>
+                <button
+                  onClick={() => onCancel(event.id)}
+                  className="w-full bg-gray-600 text-white py-2 rounded-lg font-medium hover:bg-gray-700 transition-colors"
+                >
+                  Quitter la liste d'attente
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => onBook(event.id)}
+                className={`w-full py-2 rounded-lg font-medium transition-colors ${
+                  isFull
+                    ? 'bg-yellow-600 text-white hover:bg-yellow-700'
                     : 'bg-blue-600 text-white hover:bg-blue-700'
                 }`}
               >
@@ -1569,16 +959,16 @@
       );
     }
 
-    function AdminUsersPanel({ users, saveUsers, supabase, onReload }) {
+    function AdminUsersPanel({ users, saveUsers }) {
       const [editingUser, setEditingUser] = useState(null);
       const [showAddForm, setShowAddForm] = useState(false);
 
-      const handleImportExcel = async (e) => {
+      const handleImportExcel = (e) => {
         const file = e.target.files[0];
         if (!file) return;
 
         const reader = new FileReader();
-        reader.onload = async (event) => {
+        reader.onload = (event) => {
           try {
             const data = new Uint8Array(event.target.result);
             const workbook = XLSX.read(data, { type: 'array' });
@@ -1587,30 +977,19 @@
             const json = XLSX.utils.sheet_to_json(worksheet);
 
             const newUsers = json.map(row => ({
-              name: row.name || row.Name || row.nom || row.Nom || row.NAME || row.NOM || '',
               email: row.email || row.Email || row.EMAIL || '',
               role: (row.role || row.Role || row.ROLE || 'membre').toLowerCase()
-            })).filter(user => user.email && user.name && (user.role === 'admin' || user.role === 'membre'));
+            })).filter(user => user.email && (user.role === 'admin' || user.role === 'membre'));
 
             if (newUsers.length > 0) {
               // Fusionner avec les utilisateurs existants, éviter les doublons
               const existingEmails = new Set(users.map(u => u.email.toLowerCase()));
               const usersToAdd = newUsers.filter(u => !existingEmails.has(u.email.toLowerCase()));
               
-              // Insérer dans Supabase
-              const { error } = await supabase
-                .from('users')
-                .insert(usersToAdd);
-              
-              if (!error) {
-                await onReload();
-                alert(`${usersToAdd.length} utilisateur(s) importé(s) avec succès !`);
-              } else {
-                console.error('Erreur import:', error);
-                alert('Erreur lors de l\'import');
-              }
+              saveUsers([...users, ...usersToAdd]);
+              alert(`${usersToAdd.length} utilisateur(s) importé(s) avec succès !`);
             } else {
-              alert('Aucun utilisateur valide trouvé dans le fichier.\nAssurez-vous que votre fichier Excel contient les colonnes: name (ou nom), email, role');
+              alert('Aucun utilisateur valide trouvé dans le fichier.');
             }
           } catch (error) {
             alert('Erreur lors de la lecture du fichier Excel');
@@ -1621,58 +1000,29 @@
         e.target.value = ''; // Reset input
       };
 
-      const handleAddUser = async (email, role, name) => {
+      const handleAddUser = (email, role) => {
         const normalizedEmail = email.toLowerCase().trim();
         if (users.find(u => u.email.toLowerCase() === normalizedEmail)) {
           alert('Cet email existe déjà');
           return;
         }
-        
-        // Insérer dans Supabase
-        const { error } = await supabase
-          .from('users')
-          .insert({ email: normalizedEmail, role, name: name.trim() });
-        
-        if (!error) {
-          await onReload();
-          setShowAddForm(false);
-        } else {
-          console.error('Erreur ajout:', error);
-          alert('Erreur lors de l\'ajout de l\'utilisateur');
-        }
+        saveUsers([...users, { email: normalizedEmail, role }]);
+        setShowAddForm(false);
       };
 
-      const handleUpdateRole = async (email, newRole) => {
-        const { error } = await supabase
-          .from('users')
-          .update({ role: newRole })
-          .eq('email', email);
-        
-        if (!error) {
-          await onReload();
-        } else {
-          console.error('Erreur mise à jour:', error);
-          alert('Erreur lors de la modification du rôle');
-        }
+      const handleUpdateRole = (email, newRole) => {
+        saveUsers(users.map(u => 
+          u.email === email ? { ...u, role: newRole } : u
+        ));
       };
 
-      const handleDeleteUser = async (email) => {
+      const handleDeleteUser = (email) => {
         if (email === 'clara.boveziemann@gmail.com') {
           alert('Impossible de supprimer le premier administrateur');
           return;
         }
         if (confirm(`Êtes-vous sûr de vouloir supprimer ${email} ?`)) {
-          const { error } = await supabase
-            .from('users')
-            .delete()
-            .eq('email', email);
-          
-          if (!error) {
-            await onReload();
-          } else {
-            console.error('Erreur suppression:', error);
-            alert('Erreur lors de la suppression');
-          }
+          saveUsers(users.filter(u => u.email !== email));
         }
       };
 
@@ -1705,7 +1055,7 @@
 
               <div className="text-sm text-gray-600 bg-blue-50 px-4 py-3 rounded-lg">
                 <strong>Format Excel requis:</strong>
-                <br />Colonnes: <code>name</code> (ou nom), <code>email</code> et <code>role</code> (admin ou membre)
+                <br />Colonnes: <code>email</code> et <code>role</code> (admin ou membre)
               </div>
             </div>
           </div>
@@ -1725,9 +1075,6 @@
               <thead className="bg-gray-50 border-b">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Nom
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Email
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -1741,10 +1088,7 @@
               <tbody className="divide-y divide-gray-200">
                 {users.map(user => (
                   <tr key={user.email} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {user.name || user.email.split('@')[0]}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {user.email}
                       {user.email === 'clara.boveziemann@gmail.com' && (
                         <span className="ml-2 text-xs text-blue-600">(Premier admin)</span>
@@ -1785,42 +1129,29 @@
     }
 
     function UserForm({ onSave, onCancel }) {
-      const [name, setName] = useState('');
       const [email, setEmail] = useState('');
       const [role, setRole] = useState('membre');
 
       const handleSubmit = (e) => {
         e.preventDefault();
-        onSave(email, role, name);
+        onSave(email, role);
       };
 
       return (
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-1 gap-4">
+          <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Nom complet *</label>
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                placeholder="Ex: Jean Dupont"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Email *</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                placeholder="Ex: jean.dupont@email.com"
                 required
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Rôle *</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Rôle</label>
               <select
                 value={role}
                 onChange={(e) => setRole(e.target.value)}
@@ -1851,84 +1182,43 @@
       );
     }
 
-    function AdminSlotsPanel({ slots, saveSlots, supabase, onReload }) {
+    function AdminSlotsPanel({ slots, saveSlots }) {
       const [editingSlot, setEditingSlot] = useState(null);
       const [showAddForm, setShowAddForm] = useState(false);
 
-      const handleDelete = async (slotId) => {
+      const handleDelete = (slotId) => {
         const slot = slots.find(s => s.id === slotId);
-        const hasBookings = (slot.bookings?.length || 0) > 0 || (slot.waitlist?.length || 0) > 0;
+        const hasBookings = slot.bookings.length > 0 || slot.waitlist.length > 0;
         
         if (hasBookings) {
-          if (!confirm(`Ce créneau a ${slot.bookings?.length || 0} inscription(s) et ${slot.waitlist?.length || 0} personne(s) en liste d'attente. Êtes-vous sûr de vouloir le supprimer ?`)) {
+          if (!confirm(`Ce créneau a ${slot.bookings.length} inscription(s) et ${slot.waitlist.length} personne(s) en liste d'attente. Êtes-vous sûr de vouloir le supprimer ?`)) {
             return;
           }
         } else if (!confirm('Êtes-vous sûr de vouloir supprimer ce créneau ?')) {
           return;
         }
         
-        const { error } = await supabase.from('slots').delete().eq('id', slotId);
-        if (!error) {
-          await onReload();
-        } else {
-          alert('Erreur lors de la suppression');
-        }
+        saveSlots(slots.filter(s => s.id !== slotId));
       };
 
-      const handleToggleActive = async (slotId) => {
-        const slot = slots.find(s => s.id === slotId);
-        const { error } = await supabase
-          .from('slots')
-          .update({ active: !slot.active })
-          .eq('id', slotId);
-        
-        if (!error) {
-          await onReload();
-        } else {
-          alert('Erreur lors de la modification');
-        }
+      const handleToggleActive = (slotId) => {
+        saveSlots(slots.map(s => 
+          s.id === slotId ? { ...s, active: !s.active } : s
+        ));
       };
 
-      const handleSaveSlot = async (slot) => {
+      const handleSaveSlot = (slot) => {
         if (slot.id) {
-          // Mise à jour
-          const { error } = await supabase
-            .from('slots')
-            .update({
-              type: slot.type,
-              day: slot.day,
-              start_time: slot.startTime,
-              duration: slot.duration,
-              capacity: slot.capacity,
-              active: slot.active !== false
-            })
-            .eq('id', slot.id);
-          
-          if (!error) {
-            await onReload();
-          } else {
-            alert('Erreur lors de la modification');
-          }
+          saveSlots(slots.map(s => s.id === slot.id ? slot : s));
         } else {
-          // Création
-          const { error } = await supabase
-            .from('slots')
-            .insert({
-              type: slot.type,
-              day: slot.day,
-              start_time: slot.startTime,
-              duration: slot.duration,
-              capacity: slot.capacity,
-              bookings: [],
-              waitlist: [],
-              active: true
-            });
-          
-          if (!error) {
-            await onReload();
-          } else {
-            alert('Erreur lors de la création');
-          }
+          const newSlot = { 
+            ...slot, 
+            id: Date.now(), 
+            bookings: [], 
+            waitlist: [],
+            active: true
+          };
+          saveSlots([...slots, newSlot]);
         }
         setEditingSlot(null);
         setShowAddForm(false);
@@ -2230,70 +1520,36 @@
       );
     }
 
-    function AdminEventsPanel({ events, saveEvents, supabase, onReload }) {
+    function AdminEventsPanel({ events, saveEvents }) {
       const [editingEvent, setEditingEvent] = useState(null);
       const [showAddForm, setShowAddForm] = useState(false);
 
-      const handleDelete = async (eventId) => {
+      const handleDelete = (eventId) => {
         const event = events.find(e => e.id === eventId);
-        const hasParticipants = (event.participants?.length || 0) > 0 || (event.waitlist?.length || 0) > 0;
+        const hasParticipants = event.participants.length > 0 || event.waitlist.length > 0;
         
         if (hasParticipants) {
-          if (!confirm(`Cet événement a ${event.participants?.length || 0} participant(s) et ${event.waitlist?.length || 0} personne(s) en liste d'attente. Êtes-vous sûr de vouloir le supprimer ?`)) {
+          if (!confirm(`Cet événement a ${event.participants.length} participant(s) et ${event.waitlist.length} personne(s) en liste d'attente. Êtes-vous sûr de vouloir le supprimer ?`)) {
             return;
           }
         } else if (!confirm('Êtes-vous sûr de vouloir supprimer cet événement ?')) {
           return;
         }
         
-        const { error } = await supabase.from('events').delete().eq('id', eventId);
-        if (!error) {
-          await onReload();
-        } else {
-          alert('Erreur lors de la suppression');
-        }
+        saveEvents(events.filter(e => e.id !== eventId));
       };
 
-      const handleSaveEvent = async (event) => {
+      const handleSaveEvent = (event) => {
         if (event.id) {
-          // Mise à jour
-          const { error } = await supabase
-            .from('events')
-            .update({
-              title: event.title,
-              description: event.description,
-              date: event.date,
-              start_time: event.startTime,
-              duration: event.duration,
-              capacity: event.capacity
-            })
-            .eq('id', event.id);
-          
-          if (!error) {
-            await onReload();
-          } else {
-            alert('Erreur lors de la modification');
-          }
+          saveEvents(events.map(e => e.id === event.id ? event : e));
         } else {
-          // Création
-          const { error } = await supabase
-            .from('events')
-            .insert({
-              title: event.title,
-              description: event.description,
-              date: event.date,
-              start_time: event.startTime,
-              duration: event.duration,
-              capacity: event.capacity,
-              participants: [],
-              waitlist: []
-            });
-          
-          if (!error) {
-            await onReload();
-          } else {
-            alert('Erreur lors de la création');
-          }
+          const newEvent = { 
+            ...event, 
+            id: Date.now(), 
+            participants: [], 
+            waitlist: [] 
+          };
+          saveEvents([...events, newEvent]);
         }
         setEditingEvent(null);
         setShowAddForm(false);
