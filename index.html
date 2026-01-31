@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Club Sport - Réservations</title>
+  <title>ClitTri - Réservations</title>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -51,6 +51,12 @@
       participants: event.participants || [],
       waitlist: event.waitlist || []
     });
+
+    // Fonction pour obtenir le nom d'un utilisateur à partir de son email
+    const getUserName = (email, users) => {
+      const user = users.find(u => u.email === email);
+      return user?.name || email.split('@')[0]; // Fallback sur la partie avant @
+    };
 
     // Fonction pour envoyer une notification email (simulée)
     const sendEmailNotification = (email, subject, message) => {
@@ -453,7 +459,8 @@
             {view === 'bookings' && (
               <BookingsView 
                 user={user} 
-                slots={slots} 
+                slots={slots}
+                users={users}
                 onBook={handleBookSlot}
                 onCancel={handleCancelSlot}
               />
@@ -463,6 +470,7 @@
               <EventsView 
                 user={user} 
                 events={events}
+                users={users}
                 onBook={handleBookEvent}
                 onCancel={handleCancelEvent}
               />
@@ -524,7 +532,7 @@
               <div className="inline-block p-4 bg-blue-100 rounded-full mb-4">
                 <Icon name="waves" className="text-4xl text-blue-600" />
               </div>
-              <h1 className="text-3xl font-bold text-gray-800 mb-2">Club Sport</h1>
+              <h1 className="text-3xl font-bold text-gray-800 mb-2">ClitTri</h1>
               <p className="text-gray-600">Réservation de créneaux</p>
             </div>
 
@@ -579,7 +587,7 @@
               {/* Logo */}
               <div className="flex items-center space-x-2">
                 <Icon name="waves" className="text-2xl text-blue-600" />
-                <span className="font-bold text-xl text-gray-800">Club Sport</span>
+                <span className="font-bold text-xl text-gray-800">ClitTri</span>
               </div>
               
               {/* Menu Desktop - caché en dessous de 1024px */}
@@ -673,10 +681,11 @@
               {/* Bouton Hamburger - Visible en dessous de 1024px */}
               <button
                 onClick={() => setShowMobileMenu(!showMobileMenu)}
-                className="lg:hidden p-3 text-gray-700 bg-gray-100 hover:bg-gray-200 border-2 border-gray-300 rounded-lg transition-colors"
+                className="lg:hidden p-3 text-gray-700 bg-gray-100 hover:bg-gray-200 border-2 border-gray-300 rounded-lg transition-colors flex items-center justify-center"
                 aria-label="Menu"
+                style={{ minWidth: '48px', minHeight: '48px' }}
               >
-                <Icon name={showMobileMenu ? "x" : "menu"} className="text-3xl" />
+                <span className="text-2xl font-bold">{showMobileMenu ? '✕' : '☰'}</span>
               </button>
             </div>
 
@@ -776,7 +785,7 @@
       );
     }
 
-    function BookingsView({ user, slots, onBook, onCancel }) {
+    function BookingsView({ user, slots, users, onBook, onCancel }) {
       const [filter, setFilter] = useState('all');
       const [countdown, setCountdown] = useState('');
 
@@ -945,6 +954,7 @@
                       key={slot.id} 
                       slot={slot} 
                       user={user}
+                      users={users}
                       onBook={onBook}
                       onCancel={onCancel}
                     />
@@ -964,7 +974,8 @@
       );
     }
 
-    function SlotCard({ slot, user, onBook, onCancel }) {
+    function SlotCard({ slot, user, users, onBook, onCancel }) {
+      const [showParticipants, setShowParticipants] = useState(false);
       const isBooked = slot.bookings.includes(user.email);
       const isWaitlisted = slot.waitlist.includes(user.email);
       const isFull = slot.bookings.length >= slot.capacity;
@@ -972,105 +983,350 @@
       const waitlistPosition = slot.waitlist.indexOf(user.email) + 1;
 
       return (
-        <div className="bg-white rounded-xl shadow-md p-6 hover:shadow-lg transition-shadow">
-          <div className="flex justify-between items-start mb-4">
-            <div>
-              <h3 className="text-lg font-bold text-gray-800">{slot.day}</h3>
-              <p className="text-gray-600 flex items-center mt-1">
-                <Icon name="clock" className="mr-1 text-sm" />
-                {slot.startTime} - {getEndTime(slot.startTime, slot.duration)}
-              </p>
-              <p className="text-sm text-gray-500 mt-1">
-                Durée: {slot.duration} min
-              </p>
+        <>
+          <div className="bg-white rounded-xl shadow-md p-6 hover:shadow-lg transition-shadow">
+            <div className="flex justify-between items-start mb-4">
+              <div>
+                <h3 className="text-lg font-bold text-gray-800">{slot.day}</h3>
+                <p className="text-gray-600 flex items-center mt-1">
+                  <Icon name="clock" className="mr-1 text-sm" />
+                  {slot.startTime} - {getEndTime(slot.startTime, slot.duration)}
+                </p>
+                <p className="text-sm text-gray-500 mt-1">
+                  Durée: {slot.duration} min
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                  slot.type === 'natation' ? 'bg-blue-100 text-blue-700' :
+                  slot.type === 'crossfit' ? 'bg-orange-100 text-orange-700' :
+                  slot.type === 'vélo' ? 'bg-green-100 text-green-700' :
+                  'bg-purple-100 text-purple-700'
+                }`}>
+                  {slot.type}
+                </span>
+                <button
+                  onClick={() => setShowParticipants(true)}
+                  className="p-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                  title="Voir les participants"
+                >
+                  <span className="text-lg">👁️</span>
+                </button>
+              </div>
             </div>
-            <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-              slot.type === 'natation' ? 'bg-blue-100 text-blue-700' :
-              slot.type === 'crossfit' ? 'bg-orange-100 text-orange-700' :
-              slot.type === 'vélo' ? 'bg-green-100 text-green-700' :
-              'bg-purple-100 text-purple-700'
-            }`}>
-              {slot.type}
-            </span>
-          </div>
 
-          <div className="mb-4">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm text-gray-600">Places disponibles</span>
-              <span className={`font-semibold ${
-                availableSpots === 0 ? 'text-red-600' : 'text-green-600'
-              }`}>
-                {availableSpots} / {slot.capacity}
-              </span>
+            <div className="mb-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm text-gray-600">Places disponibles</span>
+                <span className={`font-semibold ${
+                  availableSpots === 0 ? 'text-red-600' : 'text-green-600'
+                }`}>
+                  {availableSpots} / {slot.capacity}
+                </span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-2">
+                <div
+                  className={`h-2 rounded-full transition-all ${
+                    availableSpots === 0 ? 'bg-red-500' : 'bg-green-500'
+                  }`}
+                  style={{ width: `${(slot.bookings.length / slot.capacity) * 100}%` }}
+                />
+              </div>
+              
+              {slot.waitlist.length > 0 && (
+                <p className="text-xs text-gray-500 mt-2">
+                  <Icon name="users" className="inline text-xs mr-1" />
+                  {slot.waitlist.length} personne{slot.waitlist.length > 1 ? 's' : ''} en liste d'attente
+                </p>
+              )}
             </div>
-            <div className="w-full bg-gray-200 rounded-full h-2">
-              <div
-                className={`h-2 rounded-full transition-all ${
-                  availableSpots === 0 ? 'bg-red-500' : 'bg-green-500'
+
+            {isBooked ? (
+              <div>
+                <div className="bg-green-50 border border-green-200 text-green-700 px-3 py-2 rounded-lg text-sm mb-2 flex items-center">
+                  <Icon name="check-circle" className="mr-2" />
+                  Vous êtes inscrit(e)
+                </div>
+                <button
+                  onClick={() => onCancel(slot.id)}
+                  className="w-full bg-red-600 text-white py-2 rounded-lg font-medium hover:bg-red-700 transition-colors"
+                >
+                  <Icon name="x" className="inline mr-1" />
+                  Se désinscrire
+                </button>
+              </div>
+            ) : isWaitlisted ? (
+              <div>
+                <div className="bg-yellow-50 border border-yellow-200 text-yellow-700 px-3 py-2 rounded-lg text-sm mb-2 flex items-center">
+                  <Icon name="clock" className="mr-2" />
+                  Liste d'attente - Position #{waitlistPosition}
+                </div>
+                <button
+                  onClick={() => onCancel(slot.id)}
+                  className="w-full bg-gray-600 text-white py-2 rounded-lg font-medium hover:bg-gray-700 transition-colors"
+                >
+                  Quitter la liste d'attente
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => onBook(slot.id)}
+                className={`w-full py-2 rounded-lg font-medium transition-colors ${
+                  isFull
+                    ? 'bg-yellow-600 text-white hover:bg-yellow-700'
+                    : 'bg-blue-600 text-white hover:bg-blue-700'
                 }`}
-                style={{ width: `${(slot.bookings.length / slot.capacity) * 100}%` }}
-              />
-            </div>
-            
-            {slot.waitlist.length > 0 && (
-              <p className="text-xs text-gray-500 mt-2">
-                <Icon name="users" className="inline text-xs mr-1" />
-                {slot.waitlist.length} personne{slot.waitlist.length > 1 ? 's' : ''} en liste d'attente
-              </p>
+              >
+                {isFull ? (
+                  <>
+                    <Icon name="clock" className="inline mr-1" />
+                    Rejoindre la liste d'attente
+                  </>
+                ) : (
+                  'Réserver'
+                )}
+              </button>
             )}
           </div>
 
-          {isBooked ? (
-            <div>
-              <div className="bg-green-50 border border-green-200 text-green-700 px-3 py-2 rounded-lg text-sm mb-2 flex items-center">
-                <Icon name="check-circle" className="mr-2" />
-                Vous êtes inscrit(e)
+          {/* Pop-up des participants */}
+          {showParticipants && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => setShowParticipants(false)}>
+              <div className="bg-white rounded-xl shadow-2xl max-w-md w-full max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+                <div className="sticky top-0 bg-white border-b px-6 py-4 flex justify-between items-center">
+                  <h3 className="text-xl font-bold text-gray-800">
+                    {slot.type} - {slot.day} {slot.startTime}
+                  </h3>
+                  <button
+                    onClick={() => setShowParticipants(false)}
+                    className="text-gray-500 hover:text-gray-700 text-2xl font-bold"
+                  >
+                    ×
+                  </button>
+                </div>
+                
+                <div className="p-6">
+                  {/* Inscrits */}
+                  <div className="mb-6">
+                    <h4 className="font-semibold text-gray-700 mb-3 flex items-center">
+                      <span className="text-green-600 mr-2">✓</span>
+                      Inscrits ({slot.bookings.length}/{slot.capacity})
+                    </h4>
+                    {slot.bookings.length === 0 ? (
+                      <p className="text-gray-500 text-sm italic">Aucun inscrit</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {slot.bookings.map((email, idx) => (
+                          <div key={idx} className="flex items-center bg-green-50 px-3 py-2 rounded-lg">
+                            <span className="text-green-600 mr-2">✓</span>
+                            <span className="text-sm text-gray-700 font-medium">{getUserName(email, users)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Liste d'attente */}
+                  {slot.waitlist.length > 0 && (
+                    <div>
+                      <h4 className="font-semibold text-gray-700 mb-3 flex items-center">
+                        <span className="text-yellow-600 mr-2">⏱️</span>
+                        Liste d'attente ({slot.waitlist.length})
+                      </h4>
+                      <div className="space-y-2">
+                        {slot.waitlist.map((email, idx) => (
+                          <div key={idx} className="flex items-center bg-yellow-50 px-3 py-2 rounded-lg">
+                            <span className="text-yellow-600 mr-2 font-semibold">#{idx + 1}</span>
+                            <span className="text-sm text-gray-700 font-medium">{getUserName(email, users)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
-              <button
-                onClick={() => onCancel(slot.id)}
-                className="w-full bg-red-600 text-white py-2 rounded-lg font-medium hover:bg-red-700 transition-colors"
-              >
-                <Icon name="x" className="inline mr-1" />
-                Se désinscrire
-              </button>
             </div>
-          ) : isWaitlisted ? (
-            <div>
-              <div className="bg-yellow-50 border border-yellow-200 text-yellow-700 px-3 py-2 rounded-lg text-sm mb-2 flex items-center">
-                <Icon name="clock" className="mr-2" />
-                Liste d'attente - Position #{waitlistPosition}
-              </div>
-              <button
-                onClick={() => onCancel(slot.id)}
-                className="w-full bg-gray-600 text-white py-2 rounded-lg font-medium hover:bg-gray-700 transition-colors"
-              >
-                Quitter la liste d'attente
-              </button>
-            </div>
-          ) : (
-            <button
-              onClick={() => onBook(slot.id)}
-              className={`w-full py-2 rounded-lg font-medium transition-colors ${
-                isFull
-                  ? 'bg-yellow-600 text-white hover:bg-yellow-700'
-                  : 'bg-blue-600 text-white hover:bg-blue-700'
-              }`}
-            >
-              {isFull ? (
-                <>
-                  <Icon name="clock" className="inline mr-1" />
-                  Rejoindre la liste d'attente
-                </>
-              ) : (
-                'Réserver'
-              )}
-            </button>
           )}
-        </div>
+        </>
+      );
+    }
+      const [showParticipants, setShowParticipants] = useState(false);
+      const isBooked = slot.bookings.includes(user.email);
+      const isWaitlisted = slot.waitlist.includes(user.email);
+      const isFull = slot.bookings.length >= slot.capacity;
+      const availableSpots = slot.capacity - slot.bookings.length;
+      const waitlistPosition = slot.waitlist.indexOf(user.email) + 1;
+
+      return (
+        <>
+          <div className="bg-white rounded-xl shadow-md p-6 hover:shadow-lg transition-shadow">
+            <div className="flex justify-between items-start mb-4">
+              <div>
+                <h3 className="text-lg font-bold text-gray-800">{slot.day}</h3>
+                <p className="text-gray-600 flex items-center mt-1">
+                  <Icon name="clock" className="mr-1 text-sm" />
+                  {slot.startTime} - {getEndTime(slot.startTime, slot.duration)}
+                </p>
+                <p className="text-sm text-gray-500 mt-1">
+                  Durée: {slot.duration} min
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                  slot.type === 'natation' ? 'bg-blue-100 text-blue-700' :
+                  slot.type === 'crossfit' ? 'bg-orange-100 text-orange-700' :
+                  slot.type === 'vélo' ? 'bg-green-100 text-green-700' :
+                  'bg-purple-100 text-purple-700'
+                }`}>
+                  {slot.type}
+                </span>
+                <button
+                  onClick={() => setShowParticipants(true)}
+                  className="p-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                  title="Voir les participants"
+                >
+                  <span className="text-lg">👁️</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="mb-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm text-gray-600">Places disponibles</span>
+                <span className={`font-semibold ${
+                  availableSpots === 0 ? 'text-red-600' : 'text-green-600'
+                }`}>
+                  {availableSpots} / {slot.capacity}
+                </span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-2">
+                <div
+                  className={`h-2 rounded-full transition-all ${
+                    availableSpots === 0 ? 'bg-red-500' : 'bg-green-500'
+                  }`}
+                  style={{ width: `${(slot.bookings.length / slot.capacity) * 100}%` }}
+                />
+              </div>
+              
+              {slot.waitlist.length > 0 && (
+                <p className="text-xs text-gray-500 mt-2">
+                  <Icon name="users" className="inline text-xs mr-1" />
+                  {slot.waitlist.length} personne{slot.waitlist.length > 1 ? 's' : ''} en liste d'attente
+                </p>
+              )}
+            </div>
+
+            {isBooked ? (
+              <div>
+                <div className="bg-green-50 border border-green-200 text-green-700 px-3 py-2 rounded-lg text-sm mb-2 flex items-center">
+                  <Icon name="check-circle" className="mr-2" />
+                  Vous êtes inscrit(e)
+                </div>
+                <button
+                  onClick={() => onCancel(slot.id)}
+                  className="w-full bg-red-600 text-white py-2 rounded-lg font-medium hover:bg-red-700 transition-colors"
+                >
+                  <Icon name="x" className="inline mr-1" />
+                  Se désinscrire
+                </button>
+              </div>
+            ) : isWaitlisted ? (
+              <div>
+                <div className="bg-yellow-50 border border-yellow-200 text-yellow-700 px-3 py-2 rounded-lg text-sm mb-2 flex items-center">
+                  <Icon name="clock" className="mr-2" />
+                  Liste d'attente - Position #{waitlistPosition}
+                </div>
+                <button
+                  onClick={() => onCancel(slot.id)}
+                  className="w-full bg-gray-600 text-white py-2 rounded-lg font-medium hover:bg-gray-700 transition-colors"
+                >
+                  Quitter la liste d'attente
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => onBook(slot.id)}
+                className={`w-full py-2 rounded-lg font-medium transition-colors ${
+                  isFull
+                    ? 'bg-yellow-600 text-white hover:bg-yellow-700'
+                    : 'bg-blue-600 text-white hover:bg-blue-700'
+                }`}
+              >
+                {isFull ? (
+                  <>
+                    <Icon name="clock" className="inline mr-1" />
+                    Rejoindre la liste d'attente
+                  </>
+                ) : (
+                  'Réserver'
+                )}
+              </button>
+            )}
+          </div>
+
+          {/* Pop-up des participants */}
+          {showParticipants && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => setShowParticipants(false)}>
+              <div className="bg-white rounded-xl shadow-2xl max-w-md w-full max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+                <div className="sticky top-0 bg-white border-b px-6 py-4 flex justify-between items-center">
+                  <h3 className="text-xl font-bold text-gray-800">
+                    {slot.type} - {slot.day} {slot.startTime}
+                  </h3>
+                  <button
+                    onClick={() => setShowParticipants(false)}
+                    className="text-gray-500 hover:text-gray-700 text-2xl font-bold"
+                  >
+                    ×
+                  </button>
+                </div>
+                
+                <div className="p-6">
+                  {/* Inscrits */}
+                  <div className="mb-6">
+                    <h4 className="font-semibold text-gray-700 mb-3 flex items-center">
+                      <span className="text-green-600 mr-2">✓</span>
+                      Inscrits ({slot.bookings.length}/{slot.capacity})
+                    </h4>
+                    {slot.bookings.length === 0 ? (
+                      <p className="text-gray-500 text-sm italic">Aucun inscrit</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {slot.bookings.map((email, idx) => (
+                          <div key={idx} className="flex items-center bg-green-50 px-3 py-2 rounded-lg">
+                            <span className="text-green-600 mr-2">✓</span>
+                            <span className="text-sm text-gray-700">{email}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Liste d'attente */}
+                  {slot.waitlist.length > 0 && (
+                    <div>
+                      <h4 className="font-semibold text-gray-700 mb-3 flex items-center">
+                        <span className="text-yellow-600 mr-2">⏱️</span>
+                        Liste d'attente ({slot.waitlist.length})
+                      </h4>
+                      <div className="space-y-2">
+                        {slot.waitlist.map((email, idx) => (
+                          <div key={idx} className="flex items-center bg-yellow-50 px-3 py-2 rounded-lg">
+                            <span className="text-yellow-600 mr-2 font-semibold">#{idx + 1}</span>
+                            <span className="text-sm text-gray-700">{email}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </>
       );
     }
 
-    function EventsView({ user, events, onBook, onCancel }) {
+    function EventsView({ user, events, users, onBook, onCancel }) {
       const sortedEvents = [...events].sort((a, b) => new Date(a.date) - new Date(b.date));
 
       return (
@@ -1089,6 +1345,7 @@
                   key={event.id}
                   event={event}
                   user={user}
+                  users={users}
                   onBook={onBook}
                   onCancel={onCancel}
                 />
@@ -1099,113 +1356,201 @@
       );
     }
 
-    function EventCard({ event, user, onBook, onCancel }) {
+    function EventCard({ event, user, users, onBook, onCancel }) {
+      const [showParticipants, setShowParticipants] = useState(false);
       const isParticipant = event.participants.includes(user.email);
       const isWaitlisted = event.waitlist.includes(user.email);
       const isFull = event.capacity !== 'unlimited' && event.participants.length >= event.capacity;
       const waitlistPosition = event.waitlist.indexOf(user.email) + 1;
 
       return (
-        <div className="bg-white rounded-xl shadow-md overflow-hidden hover:shadow-lg transition-shadow">
-          <div className="h-2 bg-gradient-to-r from-blue-500 to-purple-500"></div>
-          
-          <div className="p-6">
-            <div className="mb-4">
-              <h3 className="text-xl font-bold text-gray-800 mb-2">{event.title}</h3>
-              {event.description && (
-                <p className="text-gray-700 text-sm mb-3">{event.description}</p>
-              )}
-            </div>
-
-            <div className="space-y-2 mb-4">
-              <p className="text-gray-600 flex items-center">
-                <Icon name="calendar" className="mr-2 text-sm" />
-                {new Date(event.date).toLocaleDateString('fr-FR', { 
-                  weekday: 'long', 
-                  day: 'numeric', 
-                  month: 'long', 
-                  year: 'numeric' 
-                })}
-              </p>
-              
-              <p className="text-gray-600 flex items-center">
-                <Icon name="clock" className="mr-2 text-sm" />
-                {event.startTime} - {getEndTime(event.startTime, event.duration)}
-              </p>
-
-              <p className="text-gray-600 flex items-center">
-                <Icon name="timer" className="mr-2 text-sm" />
-                Durée: {event.duration} min
-              </p>
-            </div>
-
-            <div className="mb-4">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm text-gray-600">
-                  {event.capacity === 'unlimited' ? 'Inscrits' : 'Places'}
-                </span>
-                <span className={`font-semibold ${
-                  event.capacity === 'unlimited' ? 'text-blue-600' :
-                  isFull ? 'text-red-600' : 'text-green-600'
-                }`}>
-                  {event.participants.length}
-                  {event.capacity !== 'unlimited' && ` / ${event.capacity}`}
-                  {event.capacity === 'unlimited' && ' inscrits'}
-                </span>
-              </div>
-              
-              {event.capacity !== 'unlimited' && (
-                <div className="w-full bg-gray-200 rounded-full h-2">
-                  <div
-                    className={`h-2 rounded-full transition-all ${
-                      isFull ? 'bg-red-500' : 'bg-green-500'
-                    }`}
-                    style={{ width: `${(event.participants.length / event.capacity) * 100}%` }}
-                  />
+        <>
+          <div className="bg-white rounded-xl shadow-md overflow-hidden hover:shadow-lg transition-shadow">
+            <div className="h-2 bg-gradient-to-r from-blue-500 to-purple-500"></div>
+            
+            <div className="p-6">
+              <div className="mb-4 flex justify-between items-start">
+                <div className="flex-1">
+                  <h3 className="text-xl font-bold text-gray-800 mb-2">{event.title}</h3>
+                  {event.description && (
+                    <p className="text-gray-700 text-sm mb-3">{event.description}</p>
+                  )}
                 </div>
-              )}
-              
-              {event.waitlist.length > 0 && (
-                <p className="text-xs text-gray-500 mt-2">
-                  <Icon name="users" className="inline text-xs mr-1" />
-                  {event.waitlist.length} personne{event.waitlist.length > 1 ? 's' : ''} en liste d'attente
+                <button
+                  onClick={() => setShowParticipants(true)}
+                  className="p-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors ml-3"
+                  title="Voir les participants"
+                >
+                  <span className="text-lg">👁️</span>
+                </button>
+              </div>
+
+              <div className="space-y-2 mb-4">
+                <p className="text-gray-600 flex items-center">
+                  <Icon name="calendar" className="mr-2 text-sm" />
+                  {new Date(event.date).toLocaleDateString('fr-FR', { 
+                    weekday: 'long', 
+                    day: 'numeric', 
+                    month: 'long', 
+                    year: 'numeric' 
+                  })}
                 </p>
+                
+                <p className="text-gray-600 flex items-center">
+                  <Icon name="clock" className="mr-2 text-sm" />
+                  {event.startTime} - {getEndTime(event.startTime, event.duration)}
+                </p>
+
+                <p className="text-gray-600 flex items-center">
+                  <Icon name="timer" className="mr-2 text-sm" />
+                  Durée: {event.duration} min
+                </p>
+              </div>
+
+              <div className="mb-4">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm text-gray-600">
+                    {event.capacity === 'unlimited' ? 'Inscrits' : 'Places'}
+                  </span>
+                  <span className={`font-semibold ${
+                    event.capacity === 'unlimited' ? 'text-blue-600' :
+                    isFull ? 'text-red-600' : 'text-green-600'
+                  }`}>
+                    {event.participants.length}
+                    {event.capacity !== 'unlimited' && ` / ${event.capacity}`}
+                    {event.capacity === 'unlimited' && ' inscrits'}
+                  </span>
+                </div>
+                
+                {event.capacity !== 'unlimited' && (
+                  <div className="w-full bg-gray-200 rounded-full h-2">
+                    <div
+                      className={`h-2 rounded-full transition-all ${
+                        isFull ? 'bg-red-500' : 'bg-green-500'
+                      }`}
+                      style={{ width: `${(event.participants.length / event.capacity) * 100}%` }}
+                    />
+                  </div>
+                )}
+                
+                {event.waitlist.length > 0 && (
+                  <p className="text-xs text-gray-500 mt-2">
+                    <Icon name="users" className="inline text-xs mr-1" />
+                    {event.waitlist.length} personne{event.waitlist.length > 1 ? 's' : ''} en liste d'attente
+                  </p>
+                )}
+              </div>
+
+              {isParticipant ? (
+                <div>
+                  <div className="bg-green-50 border border-green-200 text-green-700 px-3 py-2 rounded-lg text-sm mb-2 flex items-center">
+                    <Icon name="check-circle" className="mr-2" />
+                    Vous êtes inscrit(e)
+                  </div>
+                  <button
+                    onClick={() => onCancel(event.id)}
+                    className="w-full bg-red-600 text-white py-2 rounded-lg font-medium hover:bg-red-700 transition-colors"
+                  >
+                    <Icon name="x" className="inline mr-1" />
+                    Se désinscrire
+                  </button>
+                </div>
+              ) : isWaitlisted ? (
+                <div>
+                  <div className="bg-yellow-50 border border-yellow-200 text-yellow-700 px-3 py-2 rounded-lg text-sm mb-2 flex items-center">
+                    <Icon name="clock" className="mr-2" />
+                    Liste d'attente - Position #{waitlistPosition}
+                  </div>
+                  <button
+                    onClick={() => onCancel(event.id)}
+                    className="w-full bg-gray-600 text-white py-2 rounded-lg font-medium hover:bg-gray-700 transition-colors"
+                  >
+                    Quitter la liste d'attente
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => onBook(event.id)}
+                  className={`w-full py-2 rounded-lg font-medium transition-colors ${
+                    isFull
+                      ? 'bg-yellow-600 text-white hover:bg-yellow-700'
+                      : 'bg-blue-600 text-white hover:bg-blue-700'
+                  }`}
+                >
+                  {isFull ? (
+                    <>
+                      <Icon name="clock" className="inline mr-1" />
+                      Rejoindre la liste d'attente
+                    </>
+                  ) : (
+                    'Participer'
+                  )}
+                </button>
               )}
             </div>
+          </div>
 
-            {isParticipant ? (
-              <div>
-                <div className="bg-green-50 border border-green-200 text-green-700 px-3 py-2 rounded-lg text-sm mb-2 flex items-center">
-                  <Icon name="check-circle" className="mr-2" />
-                  Vous êtes inscrit(e)
+          {/* Pop-up des participants */}
+          {showParticipants && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => setShowParticipants(false)}>
+              <div className="bg-white rounded-xl shadow-2xl max-w-md w-full max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+                <div className="sticky top-0 bg-white border-b px-6 py-4 flex justify-between items-center">
+                  <h3 className="text-xl font-bold text-gray-800">
+                    {event.title}
+                  </h3>
+                  <button
+                    onClick={() => setShowParticipants(false)}
+                    className="text-gray-500 hover:text-gray-700 text-2xl font-bold"
+                  >
+                    ×
+                  </button>
                 </div>
-                <button
-                  onClick={() => onCancel(event.id)}
-                  className="w-full bg-red-600 text-white py-2 rounded-lg font-medium hover:bg-red-700 transition-colors"
-                >
-                  <Icon name="x" className="inline mr-1" />
-                  Se désinscrire
-                </button>
-              </div>
-            ) : isWaitlisted ? (
-              <div>
-                <div className="bg-yellow-50 border border-yellow-200 text-yellow-700 px-3 py-2 rounded-lg text-sm mb-2 flex items-center">
-                  <Icon name="clock" className="mr-2" />
-                  Liste d'attente - Position #{waitlistPosition}
+                
+                <div className="p-6">
+                  {/* Participants */}
+                  <div className="mb-6">
+                    <h4 className="font-semibold text-gray-700 mb-3 flex items-center">
+                      <span className="text-green-600 mr-2">✓</span>
+                      Participants ({event.participants.length}{event.capacity !== 'unlimited' ? `/${event.capacity}` : ''})
+                    </h4>
+                    {event.participants.length === 0 ? (
+                      <p className="text-gray-500 text-sm italic">Aucun participant</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {event.participants.map((email, idx) => (
+                          <div key={idx} className="flex items-center bg-green-50 px-3 py-2 rounded-lg">
+                            <span className="text-green-600 mr-2">✓</span>
+                            <span className="text-sm text-gray-700 font-medium">{getUserName(email, users)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Liste d'attente */}
+                  {event.waitlist.length > 0 && (
+                    <div>
+                      <h4 className="font-semibold text-gray-700 mb-3 flex items-center">
+                        <span className="text-yellow-600 mr-2">⏱️</span>
+                        Liste d'attente ({event.waitlist.length})
+                      </h4>
+                      <div className="space-y-2">
+                        {event.waitlist.map((email, idx) => (
+                          <div key={idx} className="flex items-center bg-yellow-50 px-3 py-2 rounded-lg">
+                            <span className="text-yellow-600 mr-2 font-semibold">#{idx + 1}</span>
+                            <span className="text-sm text-gray-700 font-medium">{getUserName(email, users)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
-                <button
-                  onClick={() => onCancel(event.id)}
-                  className="w-full bg-gray-600 text-white py-2 rounded-lg font-medium hover:bg-gray-700 transition-colors"
-                >
-                  Quitter la liste d'attente
-                </button>
               </div>
-            ) : (
-              <button
-                onClick={() => onBook(event.id)}
-                className={`w-full py-2 rounded-lg font-medium transition-colors ${
-                  isFull
-                    ? 'bg-yellow-600 text-white hover:bg-yellow-700'
+            </div>
+          )}
+        </>
+      );
+    }
                     : 'bg-blue-600 text-white hover:bg-blue-700'
                 }`}
               >
@@ -1242,9 +1587,10 @@
             const json = XLSX.utils.sheet_to_json(worksheet);
 
             const newUsers = json.map(row => ({
+              name: row.name || row.Name || row.nom || row.Nom || row.NAME || row.NOM || '',
               email: row.email || row.Email || row.EMAIL || '',
               role: (row.role || row.Role || row.ROLE || 'membre').toLowerCase()
-            })).filter(user => user.email && (user.role === 'admin' || user.role === 'membre'));
+            })).filter(user => user.email && user.name && (user.role === 'admin' || user.role === 'membre'));
 
             if (newUsers.length > 0) {
               // Fusionner avec les utilisateurs existants, éviter les doublons
@@ -1264,7 +1610,7 @@
                 alert('Erreur lors de l\'import');
               }
             } else {
-              alert('Aucun utilisateur valide trouvé dans le fichier.');
+              alert('Aucun utilisateur valide trouvé dans le fichier.\nAssurez-vous que votre fichier Excel contient les colonnes: name (ou nom), email, role');
             }
           } catch (error) {
             alert('Erreur lors de la lecture du fichier Excel');
@@ -1275,7 +1621,7 @@
         e.target.value = ''; // Reset input
       };
 
-      const handleAddUser = async (email, role) => {
+      const handleAddUser = async (email, role, name) => {
         const normalizedEmail = email.toLowerCase().trim();
         if (users.find(u => u.email.toLowerCase() === normalizedEmail)) {
           alert('Cet email existe déjà');
@@ -1285,7 +1631,7 @@
         // Insérer dans Supabase
         const { error } = await supabase
           .from('users')
-          .insert({ email: normalizedEmail, role });
+          .insert({ email: normalizedEmail, role, name: name.trim() });
         
         if (!error) {
           await onReload();
@@ -1359,7 +1705,7 @@
 
               <div className="text-sm text-gray-600 bg-blue-50 px-4 py-3 rounded-lg">
                 <strong>Format Excel requis:</strong>
-                <br />Colonnes: <code>email</code> et <code>role</code> (admin ou membre)
+                <br />Colonnes: <code>name</code> (ou nom), <code>email</code> et <code>role</code> (admin ou membre)
               </div>
             </div>
           </div>
@@ -1379,6 +1725,9 @@
               <thead className="bg-gray-50 border-b">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Nom
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Email
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -1392,7 +1741,10 @@
               <tbody className="divide-y divide-gray-200">
                 {users.map(user => (
                   <tr key={user.email} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      {user.name || user.email.split('@')[0]}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
                       {user.email}
                       {user.email === 'clara.boveziemann@gmail.com' && (
                         <span className="ml-2 text-xs text-blue-600">(Premier admin)</span>
@@ -1433,29 +1785,42 @@
     }
 
     function UserForm({ onSave, onCancel }) {
+      const [name, setName] = useState('');
       const [email, setEmail] = useState('');
       const [role, setRole] = useState('membre');
 
       const handleSubmit = (e) => {
         e.preventDefault();
-        onSave(email, role);
+        onSave(email, role, name);
       };
 
       return (
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Nom complet *</label>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                placeholder="Ex: Jean Dupont"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Email *</label>
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                placeholder="Ex: jean.dupont@email.com"
                 required
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Rôle</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Rôle *</label>
               <select
                 value={role}
                 onChange={(e) => setRole(e.target.value)}
