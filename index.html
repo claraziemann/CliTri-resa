@@ -1375,23 +1375,6 @@
         </>
       );
     }
-                    : 'bg-blue-600 text-white hover:bg-blue-700'
-                }`}
-              >
-                {isFull ? (
-                  <>
-                    <Icon name="clock" className="inline mr-1" />
-                    Rejoindre la liste d'attente
-                  </>
-                ) : (
-                  "S'inscrire"
-                )}
-              </button>
-            )}
-          </div>
-        </div>
-      );
-    }
 
     function AdminUsersPanel({ users, saveUsers, supabase, onReload }) {
       const [editingUser, setEditingUser] = useState(null);
