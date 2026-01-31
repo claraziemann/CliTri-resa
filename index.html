@@ -582,8 +582,8 @@
                 <span className="font-bold text-xl text-gray-800">Club Sport</span>
               </div>
               
-              {/* Menu Desktop - caché sur mobile */}
-              <div className="hidden md:flex items-center space-x-4">
+              {/* Menu Desktop - caché en dessous de 1024px */}
+              <div className="hidden lg:flex items-center space-x-4">
                 <button
                   onClick={() => setView('bookings')}
                   className={`px-4 py-2 rounded-lg font-medium transition-colors ${
@@ -652,7 +652,7 @@
                 <div className="flex items-center space-x-3 ml-4 pl-4 border-l">
                   <div className="text-sm text-gray-700">
                     <Icon name="user" className="inline mr-1" />
-                    <span className="hidden lg:inline">{user.email}</span>
+                    <span className="hidden xl:inline">{user.email}</span>
                     {user.role === 'admin' && (
                       <span className="ml-2 px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs font-medium">
                         Admin
@@ -665,23 +665,23 @@
                     title="Se déconnecter"
                   >
                     <Icon name="log-out" />
-                    <span className="hidden lg:inline">Déconnexion</span>
+                    <span className="hidden xl:inline">Déconnexion</span>
                   </button>
                 </div>
               </div>
 
-              {/* Bouton Hamburger Mobile */}
+              {/* Bouton Hamburger - Visible en dessous de 1024px */}
               <button
                 onClick={() => setShowMobileMenu(!showMobileMenu)}
-                className="md:hidden p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg"
+                className="lg:hidden p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg"
               >
                 <Icon name={showMobileMenu ? "x" : "menu"} className="text-2xl" />
               </button>
             </div>
 
-            {/* Menu Mobile - Visible uniquement sur mobile quand ouvert */}
+            {/* Menu Mobile - Visible en dessous de 1024px quand ouvert */}
             {showMobileMenu && (
-              <div className="md:hidden border-t border-gray-200 py-4 space-y-2">
+              <div className="lg:hidden border-t border-gray-200 py-4 space-y-2">
                 <button
                   onClick={() => { setView('bookings'); setShowMobileMenu(false); }}
                   className={`w-full text-left px-4 py-3 rounded-lg font-medium transition-colors ${
